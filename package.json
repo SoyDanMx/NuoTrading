@@ -1,0 +1,29 @@
+{
+  "name": "nuo-trade",
+  "version": "1.0.0",
+  "description": "Algorithmic Trading Platform - Monorepo",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "docker-compose up",
+    "dev:detached": "docker-compose up -d",
+    "frontend:dev": "cd frontend && npm run dev",
+    "backend:dev": "cd backend && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:rebuild": "docker-compose up -d --build",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && pip install -r requirements.txt"
+  },
+  "keywords": [
+    "trading",
+    "fintech",
+    "algorithmic-trading",
+    "cryptocurrency",
+    "monorepo"
+  ],
+  "author": "NUO TRADE Team",
+  "license": "MIT"
+}
