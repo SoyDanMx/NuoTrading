@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel
 from datetime import datetime
+from app.services.market_data import MarketDataService
 
 router = APIRouter()
+market_service = MarketDataService()
 
 class MarketData(BaseModel):
     symbol: str
@@ -20,23 +22,24 @@ async def get_ticker(symbol: str):
         "price": 0.0,
         "volume": 0.0,
         "timestamp": datetime.utcnow().isoformat(),
-        "message": "Market data integration pending"
     }
 
 @router.get("/ohlcv/{symbol}")
 async def get_ohlcv(
     symbol: str,
-    timeframe: str = "1h",
-    limit: int = 100
+    timeframe: str = "D",
+    days: int = 30
 ):
     """Get OHLCV (candlestick) data for a symbol."""
-    # TODO: Implement actual OHLCV data fetching
-    return {
-        "symbol": symbol.upper(),
-        "timeframe": timeframe,
-        "data": [],
-        "message": "OHLCV data integration pending"
-    }
+    try:
+        data = await market_service.get_ohlcv(symbol.upper(), timeframe, days)
+        return {
+            "symbol": symbol.upper(),
+            "timeframe": timeframe,
+            "data": data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/symbols")
 async def get_symbols():

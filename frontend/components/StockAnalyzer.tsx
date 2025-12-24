@@ -1,9 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, TrendingUp, Activity } from 'lucide-react';
 import IndicatorBar from './IndicatorBar';
 import RecommendationCard from './RecommendationCard';
+import CandlestickChart from './CandlestickChart';
+import PortfolioSummary from './PortfolioSummary';
+import { WS_URL } from '@/lib/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface StockAnalysis {
     symbol: string;
@@ -42,7 +46,28 @@ export default function StockAnalyzer() {
     const [ticker, setTicker] = useState('SOXL');
     const [loading, setLoading] = useState(false);
     const [analysis, setAnalysis] = useState<StockAnalysis | null>(null);
+    const [candles, setCandles] = useState<any[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [livePrice, setLivePrice] = useState<{ price: number; change_percent: number } | null>(null);
+
+    useEffect(() => {
+        if (!analysis) return;
+
+        const ws = new WebSocket(`${WS_URL}/api/v1/ws/${analysis.symbol}`);
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            setLivePrice({
+                price: data.price,
+                change_percent: data.change_percent
+            });
+        };
+
+        return () => {
+            ws.close();
+            setLivePrice(null);
+        };
+    }, [analysis?.symbol]);
 
     const handleAnalyze = async () => {
         if (!ticker.trim()) return;
@@ -51,7 +76,7 @@ export default function StockAnalyzer() {
         setError(null);
 
         try {
-            const response = await fetch(`http://localhost:8000/api/v1/stocks/analysis/${ticker.toUpperCase()}`);
+            const response = await fetch(`${API_URL}/api/v1/stocks/analysis/${ticker.toUpperCase()}`);
 
             if (!response.ok) {
                 throw new Error('Error al obtener datos del ticker');
@@ -59,6 +84,13 @@ export default function StockAnalyzer() {
 
             const data = await response.json();
             setAnalysis(data);
+
+            // Fetch Candles
+            const candleRes = await fetch(`${API_URL}/api/v1/market/ohlcv/${ticker.toUpperCase()}`);
+            if (candleRes.ok) {
+                const candleData = await candleRes.json();
+                setCandles(candleData.data);
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Error desconocido');
             setAnalysis(null);
@@ -129,12 +161,17 @@ export default function StockAnalyzer() {
                             </div>
                             <div className="text-right">
                                 <div className="text-xl font-mono font-bold text-white leading-none">
-                                    {analysis.quote.current_price.toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
+                                    {(livePrice?.price || analysis.quote.current_price).toLocaleString('en-US', { style: 'currency', currency: 'USD' })}
                                 </div>
-                                <div className={`text-[10px] font-mono font-bold mt-1 ${analysis.quote.percent_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                    {analysis.quote.percent_change >= 0 ? '+' : ''}{analysis.quote.percent_change.toFixed(2)}%
+                                <div className={`text-[10px] font-mono font-bold mt-1 ${(livePrice?.change_percent || analysis.quote.percent_change) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                    {(livePrice?.change_percent || analysis.quote.percent_change) >= 0 ? '+' : ''}{(livePrice?.change_percent || analysis.quote.percent_change).toFixed(2)}%
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Charts Section */}
+                        <div className="mb-4">
+                            <CandlestickChart data={candles} />
                         </div>
 
                         {/* Technical Indicators - Grid 2x2 */}
@@ -203,6 +240,8 @@ export default function StockAnalyzer() {
                         />
                     </div>
                 )}
+
+                <PortfolioSummary />
 
                 {/* Footer - Minimalist */}
                 <div className="mt-8 pt-4 border-t border-zinc-900 flex justify-between items-center opacity-30">
