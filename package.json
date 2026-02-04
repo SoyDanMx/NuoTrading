@@ -25,5 +25,8 @@
     "monorepo"
   ],
   "author": "NUO TRADE Team",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "react-tooltip": "^5.30.0"
+  }
 }

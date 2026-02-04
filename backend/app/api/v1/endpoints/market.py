@@ -49,3 +49,14 @@ async def get_symbols():
         "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
         "message": "Symbol list from exchange pending"
     }
+
+
+@router.get("/finnhub-test")
+async def finnhub_test(symbol: str = "AAPL"):
+    """Diagnostic: returns quote and whether it came from Finnhub (real) or fallback (simulated)."""
+    quote = await market_service.get_stock_quote(symbol.upper())
+    return {
+        "symbol": symbol.upper(),
+        "real_data": not quote.get("is_simulated", False),
+        "quote": quote,
+    }

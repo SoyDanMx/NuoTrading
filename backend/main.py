@@ -35,6 +35,20 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+
+@app.get("/health/finnhub")
+async def health_finnhub():
+    """Check if Finnhub API key is set (does not expose the key)."""
+    key = settings.FINNHUB_API_KEY or ""
+    key = key.strip()
+    if len(key) > 20:
+        key = key[:20]
+    configured = bool(key and key != "demo")
+    return {
+        "finnhub_configured": configured,
+        "key_length": len(key) if configured else 0,
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

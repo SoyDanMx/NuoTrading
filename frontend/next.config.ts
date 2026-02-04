@@ -22,12 +22,11 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000',
   },
 
-  // Optimize for production
-  swcMinify: true,
-  
-  // Image optimization
+  // Image optimization (Next.js 14+)
   images: {
-    domains: ['localhost'],
+    remotePatterns: [
+      { protocol: 'http', hostname: 'localhost', pathname: '/**' },
+    ],
   },
 };
 

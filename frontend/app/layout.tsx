@@ -1,14 +1,16 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Anton } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const anton = Anton({
+  weight: "400",
   subsets: ["latin"],
-  variable: "--font-inter"
+  variable: "--font-anton",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "NUO TRADE - Análisis Técnico de Acciones",
+  title: "SYSTEM.V1 - NUO TRADE",
   description: "Plataforma de análisis técnico y trading algorítmico",
 };
 
@@ -18,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
-      <body className="antialiased bg-gray-900" suppressHydrationWarning>
+    <html lang="es" className={anton.variable}>
+      <body className="antialiased bg-black text-white" suppressHydrationWarning>
         {children}
       </body>
     </html>

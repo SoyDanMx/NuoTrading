@@ -1,88 +1,90 @@
 'use client';
 
 import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface CandlestickData {
-    time: number;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 interface CandlestickChartProps {
-    data: CandlestickData[];
+  data: CandlestickData[];
+  height?: number;
+  showVolume?: boolean;
 }
 
-export default function CandlestickChart({ data }: CandlestickChartProps) {
-    const chartContainerRef = useRef<HTMLDivElement>(null);
+export default function CandlestickChart({ data, height = 400, showVolume = false }: CandlestickChartProps) {
+  const chartRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        if (!chartContainerRef.current || !data.length) return;
+  useEffect(() => {
+    if (!chartRef.current) return;
+    if (!data.length) return;
 
-        const handleResize = () => {
-            if (chartContainerRef.current) {
-                chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-            }
-        };
+    const chart = createChart(chartRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: '#ffffff' },
+        textColor: '#000000',
+        fontSize: 10,
+        fontFamily: 'Arial Black, sans-serif',
+      },
+      grid: {
+        vertLines: { color: '#000000', style: 1, visible: true },
+        horzLines: { color: '#000000', style: 1, visible: true },
+      },
+      width: chartRef.current.clientWidth,
+      height: showVolume ? height - 80 : height,
+      timeScale: {
+        borderColor: '#000000',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      rightPriceScale: {
+        borderColor: '#000000',
+        textColor: '#000000',
+        scaleMargins: {
+          top: 0.1,
+          bottom: 0.1,
+        },
+      },
+    });
 
-        const chart = createChart(chartContainerRef.current, {
-            layout: {
-                background: { type: ColorType.Solid, color: 'transparent' },
-                textColor: '#9ca3af',
-                fontSize: 10,
-            },
-            grid: {
-                vertLines: { color: 'rgba(255, 255, 255, 0.05)' },
-                horzLines: { color: 'rgba(255, 255, 255, 0.05)' },
-            },
-            width: chartContainerRef.current.clientWidth,
-            height: 320,
-            timeScale: {
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-                timeVisible: true,
-                secondsVisible: false,
-            },
-            rightPriceScale: {
-                borderColor: 'rgba(255, 255, 255, 0.1)',
-            },
-        });
+    const candlestickSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#22c55e',
+      downColor: '#ef4444',
+      borderVisible: true,
+      wickUpColor: '#22c55e',
+      wickDownColor: '#ef4444',
+      borderUpColor: '#000000',
+      borderDownColor: '#000000',
+    });
 
-        const candlestickSeries = chart.addSeries(CandlestickSeries, {
-            upColor: '#10b981',
-            downColor: '#ef4444',
-            borderVisible: false,
-            wickUpColor: '#10b981',
-            wickDownColor: '#ef4444',
-        });
+    const formatted = [...data]
+      .sort((a, b) => a.time - b.time)
+      .map((d) => ({
+        time: d.time as any,
+        open: d.open,
+        high: d.high,
+        low: d.low,
+        close: d.close,
+      }));
 
-        // Ensure data is sorted by time and format it correctly for the library
-        // Lightweight charts expects time in "seconds" for UTCTimestamp
-        const formattedData = [...data]
-            .sort((a, b) => a.time - b.time)
-            .map(item => ({
-                ...item,
-                time: item.time as any // Lightweight charts handles numbers as timestamps
-            }));
+    candlestickSeries.setData(formatted);
+    chart.timeScale().fitContent();
 
-        candlestickSeries.setData(formattedData);
-        chart.timeScale().fitContent();
+    const handleResize = () => {
+      if (chartRef.current) chart.applyOptions({ width: chartRef.current.clientWidth });
+    };
+    window.addEventListener('resize', handleResize);
 
-        window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [data, height, showVolume]);
 
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            chart.remove();
-        };
-    }, [data]);
-
-    return (
-        <div className="relative w-full bg-black/20 rounded-lg p-2 border border-white/5 overflow-hidden">
-            <div className="absolute top-2 left-3 z-10">
-                <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Price History (30D)</span>
-            </div>
-            <div ref={chartContainerRef} className="w-full" />
-        </div>
-    );
+  return <div ref={chartRef} className="w-full bg-white border-2 border-black" style={{ height }} />;
 }
