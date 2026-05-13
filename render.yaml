@@ -12,4 +12,4 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: CORS_ORIGINS
-        value: "https://nuo-trading-frontend.vercel.app,http://localhost:3000"
+        value: '["https://nuo-trading-frontend.vercel.app", "http://localhost:3000"]'
