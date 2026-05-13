@@ -5,11 +5,20 @@ import AppShell from '@/components/AppShell';
 import StocksView from '@/components/views/StocksView';
 import StockDetailView from '@/components/views/StockDetailView';
 import FindView from '@/components/views/FindView';
-import WatchlistView from '@/components/views/WatchlistView';
+import PortfolioView from '@/components/views/PortfolioView';
 import SettingsView from '@/components/views/SettingsView';
+import LandingView from '@/components/views/LandingView';
 
 export default function Home() {
-  const { activeTab, selectedSymbol, setSelectedSymbol } = useAppStore();
+  const { activeTab, selectedSymbol, setSelectedSymbol, hasStarted, setHasStarted } = useAppStore();
+
+  if (!hasStarted) {
+    return (
+      <div className="bg-black min-h-screen px-6">
+        <LandingView onStart={() => setHasStarted(true)} />
+      </div>
+    );
+  }
 
   if (selectedSymbol) {
     return (
@@ -23,17 +32,17 @@ export default function Home() {
   }
 
   const titles: Record<string, string> = {
-    mkt: 'STOCKS',
-    find: 'FIND',
-    port: 'WATCHLIST',
-    set: 'SET',
+    mkt: '', // No title for Home/Dashboard as it has a custom greeting
+    find: 'Markets',
+    port: 'Portfolio',
+    set: 'Settings',
   };
 
   return (
     <AppShell title={titles[activeTab]}>
       {activeTab === 'mkt' && <StocksView />}
       {activeTab === 'find' && <FindView />}
-      {activeTab === 'port' && <WatchlistView />}
+      {activeTab === 'port' && <PortfolioView />}
       {activeTab === 'set' && <SettingsView />}
     </AppShell>
   );

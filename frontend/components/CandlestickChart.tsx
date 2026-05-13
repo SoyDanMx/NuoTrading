@@ -1,6 +1,6 @@
 'use client';
 
-import { createChart, ColorType, CandlestickSeries } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, IChartApi } from 'lightweight-charts';
 import { useEffect, useRef } from 'react';
 
 interface CandlestickData {
@@ -19,6 +19,7 @@ interface CandlestickChartProps {
 
 export default function CandlestickChart({ data, height = 400, showVolume = false }: CandlestickChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
+  const chartInstance = useRef<IChartApi | null>(null);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -26,40 +27,44 @@ export default function CandlestickChart({ data, height = 400, showVolume = fals
 
     const chart = createChart(chartRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: '#ffffff' },
-        textColor: '#000000',
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: 'rgba(255, 255, 255, 0.4)',
         fontSize: 10,
-        fontFamily: 'Arial Black, sans-serif',
+        fontFamily: 'Inter, sans-serif',
       },
       grid: {
-        vertLines: { color: '#000000', style: 1, visible: true },
-        horzLines: { color: '#000000', style: 1, visible: true },
+        vertLines: { color: 'rgba(255, 255, 255, 0.03)', style: 1, visible: true },
+        horzLines: { color: 'rgba(255, 255, 255, 0.03)', style: 1, visible: true },
       },
       width: chartRef.current.clientWidth,
       height: showVolume ? height - 80 : height,
       timeScale: {
-        borderColor: '#000000',
+        borderColor: 'rgba(255, 255, 255, 0.05)',
         timeVisible: true,
         secondsVisible: false,
       },
       rightPriceScale: {
-        borderColor: '#000000',
-        textColor: '#000000',
+        borderColor: 'rgba(255, 255, 255, 0.05)',
+        textColor: 'rgba(255, 255, 255, 0.4)',
         scaleMargins: {
           top: 0.1,
           bottom: 0.1,
         },
       },
+      crosshair: {
+        vertLine: { color: 'rgba(255, 255, 255, 0.2)', labelBackgroundColor: '#1A1A1A' },
+        horzLine: { color: 'rgba(255, 255, 255, 0.2)', labelBackgroundColor: '#1A1A1A' },
+      }
     });
 
+    chartInstance.current = chart;
+
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      borderVisible: true,
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444',
-      borderUpColor: '#000000',
-      borderDownColor: '#000000',
+      upColor: '#3B82F6',
+      downColor: '#EF4444',
+      borderVisible: false,
+      wickUpColor: '#3B82F6',
+      wickDownColor: '#EF4444',
     });
 
     const formatted = [...data]
@@ -76,7 +81,9 @@ export default function CandlestickChart({ data, height = 400, showVolume = fals
     chart.timeScale().fitContent();
 
     const handleResize = () => {
-      if (chartRef.current) chart.applyOptions({ width: chartRef.current.clientWidth });
+      if (chartRef.current && chartInstance.current) {
+        chartInstance.current.applyOptions({ width: chartRef.current.clientWidth });
+      }
     };
     window.addEventListener('resize', handleResize);
 
@@ -86,5 +93,5 @@ export default function CandlestickChart({ data, height = 400, showVolume = fals
     };
   }, [data, height, showVolume]);
 
-  return <div ref={chartRef} className="w-full bg-white border-2 border-black" style={{ height }} />;
+  return <div ref={chartRef} className="w-full" style={{ height }} />;
 }

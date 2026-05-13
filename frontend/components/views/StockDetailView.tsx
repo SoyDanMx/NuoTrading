@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '@/store/app-store';
 import { getCompanyName } from '@/lib/constants';
+import { 
+  Plus, Activity, BarChart2, ArrowUpRight, Sparkles, Brain, 
+  Newspaper, Play, Square, History, Tag, Database
+} from 'lucide-react';
 import LineChart from '../LineChart';
 import CandlestickChart from '../CandlestickChart';
 import TradingViewChart from '../TradingViewChart';
-import BrutalistGauge from '../BrutalistGauge';
-import BrutalistIndicatorBar from '../BrutalistIndicatorBar';
 import EnhancedIndicatorBar from '../EnhancedIndicatorBar';
 import AdvancedIndicators from '../AdvancedIndicators';
 import StockIcon from '../StockIcon';
@@ -21,538 +23,346 @@ const TIMEFRAMES: { id: Timeframe; resolution: string; days: number }[] = [
   { id: '1D', resolution: '60', days: 1 },
   { id: '1W', resolution: 'D', days: 7 },
   { id: '1M', resolution: 'D', days: 30 },
-  { id: '1Y', resolution: 'D', days: 365 },
+  { id: '1Y', resolution: 'W', days: 365 },
 ];
 
-interface Quote {
-  symbol: string;
-  current_price: number;
-  percent_change: number;
-  change: number;
-  high: number;
-  low: number;
-  open: number;
-  previous_close: number;
-  is_simulated?: boolean;
-}
-
-interface Analysis {
-  symbol: string;
-  quote: Quote;
-  indicators: {
-    rsi: number;
-    macd: { is_positive: boolean; histogram: number };
-    volume: { ratio: number };
-    moving_averages: { sma_20: number; sma_50: number; trend: string };
-    support_resistance?: {
-      support_level: number;
-      resistance_level: number;
-      current_price: number;
-      support_distance_pct: number;
-      resistance_distance_pct: number;
-      near_support: boolean;
-      near_resistance: boolean;
-      signal: string;
-    };
-    divergence?: {
-      detected: boolean;
-      type: string | null;
-      strength: number;
-    };
-    fibonacci?: {
-      levels: Record<string, number>;
-      swing_high: number;
-      swing_low: number;
-      current_price: number;
-      current_level: string | null;
-      trend: string;
-    };
-  };
-  vix: { value: number; risk_level: string };
-  recommendation: {
-    action: string;
-    normalized_score?: number;
-    breakdown?: Array<{ label: string; value: number; contribution: number }>;
-    score: number;
-    color: string;
-    confidence: string;
-    signals: string[];
-  };
-}
-
 export default function StockDetailView({ symbol }: { symbol: string }) {
-  const { setSelectedSymbol, addToWatchlist, watchlist, isBeginnerMode } = useAppStore();
-  const [quote, setQuote] = useState<Quote | null>(null);
-  const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [timeframe, setTimeframe] = useState<Timeframe>('1D');
-  const [chartData, setChartData] = useState<{ time: number; value: number }[]>([]);
-  const [candlestickData, setCandlestickData] = useState<{ time: number; open: number; high: number; low: number; close: number }[]>([]);
-  const [chartType, setChartType] = useState<'line' | 'candlestick' | 'tradingview'>('line');
+  const { watchlist, addToWatchlist } = useAppStore();
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [sentiment, setSentiment] = useState<any>(null);
+  const [agentStatus, setAgentStatus] = useState<any>(null);
+  const [memory, setMemory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const inWatchlist = watchlist.includes(symbol.toUpperCase());
+  const [timeframe, setTimeframe] = useState<Timeframe>('1D');
+  const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
 
-  const REFRESH_MS = 30000;
+  const inWatchlist = watchlist.includes(symbol);
+
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
+      setLoading(true);
+      setError(null);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
       try {
-        const [quoteRes, analysisRes] = await Promise.all([
-          fetch(`${API_URL}/api/v1/stocks/quote/${symbol}`),
-          fetch(`${API_URL}/api/v1/stocks/analysis/${symbol}`),
+        const fetchWithTimeout = (url: string) => 
+          fetch(url, { signal: controller.signal }).then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+          });
+
+        const [analysisRes, sentimentRes, agentRes, memoryRes] = await Promise.allSettled([
+          fetchWithTimeout(`${API_URL}/api/v1/stocks/analysis/${symbol}`),
+          fetchWithTimeout(`${API_URL}/api/v1/stocks/sentiment/${symbol}`),
+          fetchWithTimeout(`${API_URL}/api/v1/agents/${symbol}`),
+          fetchWithTimeout(`${API_URL}/api/v1/memory/${symbol}`)
         ]);
-        if (quoteRes.ok) setQuote(await quoteRes.json());
-        if (analysisRes.ok) setAnalysis(await analysisRes.json());
-      } catch {
-        setQuote(null);
-        setAnalysis(null);
+        
+        clearTimeout(timeoutId);
+
+        if (analysisRes.status === 'fulfilled') setAnalysis(analysisRes.value);
+        else console.warn("Analysis failed:", analysisRes.reason);
+
+        if (sentimentRes.status === 'fulfilled') setSentiment(sentimentRes.value);
+        else console.warn("Sentiment failed:", sentimentRes.reason);
+
+        if (agentRes.status === 'fulfilled') setAgentStatus(agentRes.value);
+        if (memoryRes.status === 'fulfilled') setMemory(memoryRes.value.memories || []);
+
+        // If at least basic analysis failed, show a warning
+        if (analysisRes.status === 'rejected') {
+          setError("Technical analysis timed out or failed. Displaying limited data.");
+        }
+
+      } catch (e: any) {
+        if (e.name === 'AbortError') {
+          setError("Server took too long to respond. Please try again.");
+        } else {
+          setError("Failed to fetch market data.");
+        }
+        console.error(e);
       } finally {
         setLoading(false);
       }
     }
     fetchData();
-    const t = setInterval(fetchData, REFRESH_MS);
-    return () => clearInterval(t);
   }, [symbol]);
 
-  useEffect(() => {
-    async function fetchChart() {
-      const tf = TIMEFRAMES.find((t) => t.id === timeframe);
-      if (!tf) return;
-      try {
-        const res = await fetch(
-          `${API_URL}/api/v1/market/ohlcv/${symbol}?timeframe=${tf.resolution}&days=${tf.days}`
-        );
-        if (!res.ok) return;
-        const { data } = await res.json();
-        if (Array.isArray(data)) {
-          // Line chart data
-          setChartData(data.map((d: { time: number; close: number }) => ({ time: d.time, value: d.close })));
-          // Candlestick data
-          setCandlestickData(
-            data.map((d: { time: number; open: number; high: number; low: number; close: number }) => ({
-              time: d.time,
-              open: d.open || d.close,
-              high: d.high || d.close,
-              low: d.low || d.close,
-              close: d.close,
-            }))
-          );
-        }
-      } catch {
-        setChartData([]);
-        setCandlestickData([]);
+  const toggleAgent = async () => {
+    const method = agentStatus?.is_running ? 'DELETE' : 'POST';
+    const endpoint = agentStatus?.is_running ? 'stop' : 'start';
+    try {
+      const res = await fetch(`${API_URL}/api/v1/agents/${symbol}/${endpoint}`, { method });
+      if (res.ok) {
+        // Refresh status
+        const statusRes = await fetch(`${API_URL}/api/v1/agents/${symbol}`);
+        if (statusRes.ok) setAgentStatus(await statusRes.json());
+        else if (statusRes.status === 404) setAgentStatus(null);
       }
+    } catch (e) {
+      console.error("Error toggling agent:", e);
     }
-    fetchChart();
-  }, [symbol, timeframe]);
+  };
 
+  const quote = analysis?.quote;
+  const chartData = analysis?.indicators?.chart_data || [];
+  const candlestickData = analysis?.indicators?.candles || [];
   const percentChange = quote?.percent_change ?? 0;
   const positive = percentChange >= 0;
-  const chartColor = positive ? '#22c55e' : '#ef4444';
+  const chartColor = positive ? '#3B82F6' : '#EF4444';
 
-  const now = new Date();
-  const lastUpdated = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')} EST`;
-
-  // BEGINNER MODE VIEW
-  if (isBeginnerMode) {
-    // Show loading state if analysis is not ready
-    if (!analysis) {
-      return (
-        <div className="px-4 space-y-4 pb-4">
-          <div className="bg-white border-2 border-black p-4 text-black text-center">
-            <div className="brutal-text text-lg mb-2">CARGANDO ANÁLISIS...</div>
-            <div className="text-[10px] font-black uppercase text-black/60">
-              Obteniendo datos de {symbol}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    const rec = analysis.recommendation;
-    const ind = analysis.indicators;
-
+  if (loading && !quote) {
     return (
-      <div className="px-4 space-y-4 pb-4">
-        {quote?.is_simulated && (
-          <div className="bg-white border-2 border-black p-3 text-black text-xs font-black uppercase">
-            Datos simulados. Revisa FINNHUB_API_KEY en .env
-          </div>
-        )}
-
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <StockIcon symbol={symbol} size="lg" showTrend={true} trend={positive ? 'up' : 'down'} />
-            <h2 className="brutal-title text-3xl text-white">{symbol}</h2>
-          </div>
-          <button
-            type="button"
-            onClick={() => addToWatchlist(symbol)}
-            className="bg-white text-black text-[10px] font-black uppercase px-3 py-2 border-2 border-white hover:bg-black hover:text-white disabled:opacity-50"
-            disabled={inWatchlist}
-          >
-            + ADD TO LIST
-          </button>
-        </div>
-        <p className="text-[10px] font-black uppercase text-white/60 -mt-2">
-          {getCompanyName(symbol)} • NASDAQ
-        </p>
-
-        {/* Price card */}
-        <div className="bg-white border-2 border-black p-4 text-black">
-          <div className="flex justify-between items-start mb-2">
-            <span className="brutal-title text-3xl">
-              {quote?.current_price?.toFixed(2) ?? '—'} USD
-            </span>
-            <span className="text-[10px] font-black uppercase text-black/60">TODAY</span>
-          </div>
-          <div
-            className={`brutal-text text-base flex items-center gap-1 ${
-              positive ? 'text-[#22c55e]' : 'text-[#ef4444]'
-            }`}
-          >
-            {positive ? '▲' : '▼'} {quote?.change?.toFixed(2) ?? '—'} {percentChange.toFixed(2)}%
-          </div>
-        </div>
-
-        {/* Signal Gauge - Principiante */}
-        <BrutalistGauge
-          score={rec.normalized_score ?? 50}
-          label={symbol}
-          showBreakdown={true}
-          breakdown={rec.breakdown || []}
-        />
-
-        {/* Key Indicators - Principiante */}
-        <div className="space-y-3">
-          <h3 className="brutal-text text-sm text-white border-b-2 border-white pb-2">
-            INDICADORES CLAVE
-          </h3>
-
-          <BrutalistIndicatorBar
-            label="RSI"
-            explanation="¿Está barato o caro? <30 = barato (comprar), >70 = caro (vender)"
-            value={ind.rsi}
-            min={0}
-            max={100}
-            positiveThreshold={30}
-            negativeThreshold={70}
-            higherIsBetter={false}
-            unit="%"
-            showTooltip={true}
-          />
-
-          <BrutalistIndicatorBar
-            label="MACD"
-            explanation="Tendencia: positivo = subiendo (bueno), negativo = bajando"
-            value={ind.macd.histogram}
-            min={-10}
-            max={10}
-            positiveThreshold={0}
-            unit=""
-            showTooltip={true}
-          />
-
-          <BrutalistIndicatorBar
-            label="MEDIAS MÓVILES"
-            explanation="Dirección del precio (alcista = bueno)"
-            value={ind.moving_averages.trend === 'bullish' ? 1 : -1}
-            min={-1}
-            max={1}
-            positiveThreshold={0}
-            unit=""
-            showTooltip={true}
-          />
-
-          <BrutalistIndicatorBar
-            label="VOLUMEN"
-            explanation="Interés: >1.5x = mucho interés (bueno), <0.7x = poco interés"
-            value={ind.volume.ratio}
-            min={0}
-            max={3}
-            positiveThreshold={1.5}
-            negativeThreshold={0.7}
-            unit="x"
-            showTooltip={true}
-          />
-
-          <BrutalistIndicatorBar
-            label="VIX"
-            explanation="Miedo del mercado (bajo = calma, alto = riesgo)"
-            value={analysis.vix.value}
-            min={0}
-            max={50}
-            positiveThreshold={20}
-            negativeThreshold={30}
-            higherIsBetter={false}
-            unit=""
-            showTooltip={true}
-          />
-        </div>
-
-        {/* Simple Chart */}
-        <div>
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="brutal-text text-sm text-white">GRÁFICO DE PRECIO</h3>
-            {/* Chart type toggle */}
-            <div className="flex border-2 border-white overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setChartType('line')}
-                className={`px-3 py-1.5 text-[10px] font-black uppercase border-r-2 border-white ${
-                  chartType === 'line' ? 'bg-white text-black' : 'bg-black text-white'
-                }`}
-              >
-                LÍNEA
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartType('candlestick')}
-                className={`px-3 py-1.5 text-[10px] font-black uppercase border-r-2 border-white ${
-                  chartType === 'candlestick' ? 'bg-white text-black' : 'bg-black text-white'
-                }`}
-              >
-                VELAS
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartType('tradingview')}
-                className={`px-3 py-1.5 text-[10px] font-black uppercase ${
-                  chartType === 'tradingview' ? 'bg-white text-black' : 'bg-black text-white'
-                }`}
-              >
-                TRADINGVIEW
-              </button>
-            </div>
-          </div>
-          <div className="flex gap-2 mb-3 border-2 border-white p-1">
-            {TIMEFRAMES.map((tf) => (
-              <button
-                key={tf.id}
-                type="button"
-                onClick={() => setTimeframe(tf.id)}
-                className={`px-3 py-1.5 text-[10px] font-black uppercase border-2 ${
-                  timeframe === tf.id
-                    ? 'bg-white text-black border-white'
-                    : 'bg-black text-white border-white hover:bg-white hover:text-black'
-                }`}
-              >
-                {tf.id}
-              </button>
-            ))}
-          </div>
-          <div className="bg-white border-2 border-black p-3 min-h-[260px]">
-          {chartType === 'tradingview' ? (
-            <TradingViewChart
-              symbol={symbol}
-              height={260}
-              theme="light"
-              interval={timeframe === '1D' ? '60' : timeframe === '1W' ? '1D' : timeframe === '1M' ? '1D' : '1W'}
-              hide_top_toolbar={false}
-              allow_symbol_change={false}
-              studies={['RSI@tv-basicstudies', 'MACD@tv-basicstudies']}
-              locale="es"
-            />
-            ) : chartType === 'line' && chartData.length ? (
-              <LineChart data={chartData} color={chartColor} height={260} />
-            ) : chartType === 'candlestick' && candlestickData.length ? (
-              <CandlestickChart data={candlestickData} height={260} />
-            ) : (
-              <div className="h-[260px] flex items-center justify-center text-black text-sm font-black uppercase border-2 border-black">
-                Cargando datos…
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Advanced Indicators - Collapsible */}
-        <AdvancedIndicators
-          supportResistance={ind.support_resistance}
-          divergence={ind.divergence}
-          fibonacci={ind.fibonacci}
-          isBeginnerMode={isBeginnerMode}
-        />
-
-        {/* Disclaimer for beginners */}
-        <Disclaimer />
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <div className="w-12 h-12 border-4 border-white/10 border-t-white rounded-full animate-spin" />
+        <p className="text-white/40 text-sm font-medium animate-pulse">Analyzing {symbol}...</p>
       </div>
     );
   }
 
-  // Loading state for beginner mode
-  if (isBeginnerMode && !analysis) {
+  if (!loading && !quote) {
     return (
-      <div className="px-4 space-y-4 pb-4">
-        <div className="bg-white border-2 border-black p-4 text-black text-center">
-          <div className="brutal-text text-lg mb-2">CARGANDO ANÁLISIS...</div>
-          <div className="text-[10px] font-black uppercase text-black/60">
-            Obteniendo datos de {symbol}
-          </div>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6 animate-slide-up">
+        <div className="p-6 rounded-full bg-red-500/10 border border-red-500/20">
+          <Activity className="w-12 h-12 text-red-400" />
         </div>
-      </div>
-    );
-  }
-
-  // EXPERT MODE VIEW (existing design)
-  return (
-    <div className="px-4 space-y-4 pb-4">
-      {quote?.is_simulated && (
-        <div className="bg-white border-2 border-black p-3 text-black text-xs font-black uppercase">
-          Datos simulados. Revisa FINNHUB_API_KEY en .env
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-serif font-medium">Símbolo no encontrado</h2>
+          <p className="text-sm text-white/40 max-w-xs mx-auto">
+            No hemos podido obtener datos para {symbol}. Es posible que el ticker no exista o la API de mercado esté saturada.
+          </p>
         </div>
-      )}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <StockIcon symbol={symbol} size="lg" showTrend={true} trend={positive ? 'up' : 'down'} />
-          <h2 className="brutal-title text-3xl text-white">{symbol}</h2>
-        </div>
-        <button
-          type="button"
-          onClick={() => addToWatchlist(symbol)}
-          className="bg-white text-black text-[10px] font-black uppercase px-3 py-2 border-2 border-white hover:bg-black hover:text-white disabled:opacity-50"
-          disabled={inWatchlist}
+        <button 
+          onClick={() => window.location.reload()}
+          className="px-8 py-3 bg-white text-black font-bold rounded-2xl hover:scale-105 transition-all"
         >
-          + ADD TO LIST
+          Reintentar
         </button>
       </div>
-      <p className="text-[10px] font-black uppercase text-white/60 -mt-2">
-        {getCompanyName(symbol)} • NASDAQ
-      </p>
+    );
+  }
 
-      {/* Price card */}
-      <div className="bg-white border-2 border-black p-4 text-black">
-        <div className="flex justify-between items-start mb-2">
-          <span className="brutal-title text-3xl">
-            {quote?.current_price?.toFixed(2) ?? '—'} USD
-          </span>
-          <span className="text-[10px] font-black uppercase text-black/60">TODAY</span>
-        </div>
-        <div
-          className={`brutal-text text-base flex items-center gap-1 ${
-            positive ? 'text-[#22c55e]' : 'text-[#ef4444]'
-          }`}
-        >
-          {positive ? '▼' : '▼'} {quote?.change?.toFixed(2) ?? '—'} {percentChange.toFixed(2)}%
-        </div>
-        <div className="text-[10px] font-black uppercase text-black/60 mt-3 border-t-2 border-black pt-2">
-          LAST UPDATED {lastUpdated}
-        </div>
-      </div>
+  const rec = analysis?.recommendation;
+  const ind = analysis?.indicators;
+  const ai = analysis?.ai_insights;
+  const news = analysis?.news || [];
 
-      {/* Price chart */}
-      <div>
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="brutal-text text-sm text-white">PRICE CHART</h3>
-          {/* Chart type toggle */}
-          <div className="flex border-2 border-white overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setChartType('line')}
-              className={`px-3 py-1.5 text-[10px] font-black uppercase border-r-2 border-white ${
-                chartType === 'line' ? 'bg-white text-black' : 'bg-black text-white'
-              }`}
-            >
-              LÍNEA
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartType('candlestick')}
-              className={`px-3 py-1.5 text-[10px] font-black uppercase border-r-2 border-white ${
-                chartType === 'candlestick' ? 'bg-white text-black' : 'bg-black text-white'
-              }`}
-            >
-              VELAS
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartType('tradingview')}
-              className={`px-3 py-1.5 text-[10px] font-black uppercase ${
-                chartType === 'tradingview' ? 'bg-white text-black' : 'bg-black text-white'
-              }`}
-            >
-              TRADINGVIEW
-            </button>
-          </div>
-        </div>
-        <div className="flex gap-2 mb-3 border-2 border-white p-1">
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.id}
-              type="button"
-              onClick={() => setTimeframe(tf.id)}
-              className={`px-3 py-1.5 text-[10px] font-black uppercase border-2 ${
-                timeframe === tf.id
-                  ? 'bg-white text-black border-white'
-                  : 'bg-black text-white border-white hover:bg-white hover:text-black'
-              }`}
-            >
-              {tf.id}
-            </button>
-          ))}
-        </div>
-        <div className="bg-white border-2 border-black p-3 min-h-[260px]">
-          {chartType === 'tradingview' ? (
-            <TradingViewChart
-              symbol={symbol}
-              height={260}
-              theme="light"
-              interval={timeframe === '1D' ? '60' : timeframe === '1W' ? '1D' : timeframe === '1M' ? '1D' : '1D'}
-              hide_top_toolbar={false}
-              allow_symbol_change={false}
-              studies={['RSI@tv-basicstudies', 'MACD@tv-basicstudies']}
-              locale="es"
-            />
-          ) : chartType === 'line' && chartData.length ? (
-            <LineChart data={chartData} color={chartColor} height={260} />
-          ) : chartType === 'candlestick' && candlestickData.length ? (
-            <CandlestickChart data={candlestickData} height={260} />
-          ) : (
-            <div className="h-[260px] flex items-center justify-center text-black text-sm font-black uppercase border-2 border-black">
-              Cargando datos…
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Expert indicators - TODO: Add detailed technical view */}
-      {analysis && (
-        <div className="bg-white border-2 border-black p-4 text-black space-y-3">
-          <div className="brutal-text text-sm border-b-2 border-black pb-2">
-            ANÁLISIS TÉCNICO
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-[10px] font-black uppercase">
-            <div>
-              <span className="text-black/60">RSI:</span> {analysis.indicators.rsi.toFixed(1)}
-            </div>
-            <div>
-              <span className="text-black/60">MACD:</span>{' '}
-              {analysis.indicators.macd.is_positive ? 'POSITIVO' : 'NEGATIVO'}
-            </div>
-            <div>
-              <span className="text-black/60">VOL:</span> {analysis.indicators.volume.ratio.toFixed(2)}x
-            </div>
-            <div>
-              <span className="text-black/60">VIX:</span> {analysis.vix.value.toFixed(1)}
-            </div>
-          </div>
-          {analysis.recommendation && (
-            <div className="border-t-2 border-black pt-3">
-              <div className={`brutal-text text-base ${
-                analysis.recommendation.color === 'green' ? 'text-[#22c55e]' :
-                analysis.recommendation.color === 'red' ? 'text-[#ef4444]' : 'text-black'
-              }`}>
-                {analysis.recommendation.action}
-              </div>
-              <div className="text-[9px] font-black uppercase text-black/60 mt-1">
-                SCORE: {analysis.recommendation.score} | CONFIANZA: {analysis.recommendation.confidence}
-              </div>
-            </div>
-          )}
+  return (
+    <div className="space-y-8 pb-32 animate-slide-up">
+      {/* Error Banner */}
+      {error && (
+        <div className="glass bg-red-500/10 border-red-500/20 p-4 rounded-2xl flex items-center gap-3 text-red-400 text-xs font-bold uppercase tracking-widest animate-pulse">
+          <Activity className="w-4 h-4" />
+          {error}
         </div>
       )}
 
-      {/* Disclaimer */}
+      {/* Symbol & Meta */}
+      <div className="flex justify-between items-center pt-4">
+        <div className="flex items-center gap-4">
+          <StockIcon symbol={symbol} size="lg" />
+          <div>
+            <h2 className="font-serif text-3xl font-medium tracking-tight text-white/90">{getCompanyName(symbol)}</h2>
+            <p className="text-xs text-white/40 font-bold tracking-[0.2em] uppercase">{symbol} • NASDAQ</p>
+          </div>
+        </div>
+        <button
+          onClick={() => addToWatchlist(symbol)}
+          className={`p-3 rounded-2xl border transition-all ${
+            inWatchlist 
+            ? 'bg-white/5 border-white/10 text-white/30' 
+            : 'bg-white border-white text-black shadow-lg shadow-white/10 hover:scale-105'
+          }`}
+          disabled={inWatchlist}
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+      </div>
+
+      {/* Price Display */}
+      <div className="space-y-1">
+        <h1 className="text-6xl font-semibold tracking-tighter">
+          ${quote?.current_price?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}
+        </h1>
+        <p className={`text-lg font-medium ${positive ? 'text-blue-400' : 'text-red-400'}`}>
+          {quote?.change?.toFixed(2) ?? '—'} ({percentChange.toFixed(2)}%)
+        </p>
+      </div>
+
+      {/* FASE 2: Active Agent Panel */}
+      <div className="space-y-6 animate-slide-up" style={{ animationDelay: '0.05s' }}>
+        <div className="flex items-center justify-between border-b border-white/5 pb-4">
+          <div className="flex items-center gap-2">
+            <Database className="w-5 h-5 text-green-400" />
+            <h3 className="text-xl font-medium font-serif">Agente Autónomo</h3>
+          </div>
+          <button 
+            onClick={toggleAgent}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
+              agentStatus?.is_running 
+              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20' 
+              : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+            }`}
+          >
+            {agentStatus?.is_running ? <><Square className="w-3 h-3 fill-current" /> Stop Agent</> : <><Play className="w-3 h-3 fill-current" /> Start Agent</>}
+          </button>
+        </div>
+
+        <div className="glass p-6 grid grid-cols-2 md:grid-cols-4 gap-6 relative overflow-hidden">
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Status</p>
+            <p className={`text-lg font-bold ${agentStatus?.is_running ? 'text-green-400' : 'text-white/40'}`}>
+              {agentStatus?.status || 'OFFLINE'}
+            </p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Last Signal</p>
+            <p className="text-lg font-bold text-white/90">{agentStatus?.last_decision || 'None'}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Confidence</p>
+            <p className="text-lg font-bold text-white/90">{agentStatus?.confidence || 0}%</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Loop</p>
+            <p className="text-lg font-bold text-white/90">60s</p>
+          </div>
+        </div>
+      </div>
+
+      {/* FASE 4: Agent Observability (Thought Process) */}
+      {agentStatus?.is_running && agentStatus?.last_decision && (
+        <div className="space-y-6 animate-slide-up" style={{ animationDelay: '0.08s' }}>
+          <div className="flex items-center gap-2 border-b border-white/5 pb-4">
+            <Activity className="w-5 h-5 text-blue-400" />
+            <h3 className="text-xl font-medium font-serif">Pensamiento del Agente</h3>
+          </div>
+          
+          <div className="glass p-8 bg-blue-500/5 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <Sparkles className="w-24 h-24" />
+            </div>
+            
+            <div className="relative z-10 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-widest">
+                  Live Reasoning
+                </div>
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              </div>
+              
+              <div className="space-y-4">
+                <p className="text-xl font-medium text-white/90 leading-relaxed font-serif italic">
+                  "{analysis?.reasoning || 'El agente está analizando las variables técnicas y fundamentales...'}"
+                </p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/5">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Sentiment Factor</p>
+                    <p className="text-sm text-white/70">{sentiment?.signal || 'Neutral'} ({sentiment?.sentiment_score?.toFixed(2) || '0.00'})</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Technical Bias</p>
+                    <p className="text-sm text-white/70">RSI: {analysis?.indicators?.rsi || 'N/A'} • MACD: {analysis?.indicators?.macd?.histogram || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Chart Section */}
+      <div className="relative h-[300px] w-full group">
+        {chartType === 'line' && chartData.length ? (
+          <LineChart data={chartData} color={chartColor} height={300} />
+        ) : chartType === 'candlestick' && candlestickData.length ? (
+          <CandlestickChart data={candlestickData} height={300} />
+        ) : (
+          <div className="h-full w-full glass flex items-center justify-center">
+            <p className="text-white/20 text-sm">Loading market data...</p>
+          </div>
+        )}
+        <div className="absolute top-4 right-0 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => setChartType('line')} className={`p-2 rounded-lg ${chartType === 'line' ? 'bg-white/10 text-white' : 'text-white/40'}`}>
+            <Activity className="w-4 h-4" />
+          </button>
+          <button onClick={() => setChartType('candlestick')} className={`p-2 rounded-lg ${chartType === 'candlestick' ? 'bg-white/10 text-white' : 'text-white/40'}`}>
+            <BarChart2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* FASE 3: Market Memory Panel (Obsidian++) */}
+      <div className="space-y-6 animate-slide-up" style={{ animationDelay: '0.1s' }}>
+        <div className="flex items-center gap-2 border-b border-white/5 pb-4">
+          <History className="w-5 h-5 text-amber-400" />
+          <h3 className="text-xl font-medium font-serif">Memoria del Ticker (Obsidian)</h3>
+        </div>
+        
+        {memory.length > 0 ? (
+          <div className="space-y-3">
+            {memory.map((entry, i) => (
+              <div key={i} className="glass p-5 space-y-3 group hover:bg-white/5 transition-all">
+                <div className="flex justify-between items-start">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${
+                      entry.recommendation === 'BUY' ? 'bg-blue-400' : 
+                      entry.recommendation === 'SELL' ? 'bg-red-400' : 'bg-white/20'
+                    }`} />
+                    <span className="text-xs font-bold text-white/40 uppercase tracking-widest">{entry.date}</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">{entry.confidence}% Conf.</span>
+                </div>
+                <p className="text-sm text-white/70 leading-relaxed italic line-clamp-2">"{entry.reasoning}"</p>
+                <div className="flex gap-2">
+                  <span className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest bg-white/5 px-2 py-1 rounded text-white/30"><Tag className="w-2 h-2" /> #pattern-match</span>
+                  <span className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest bg-white/5 px-2 py-1 rounded text-white/30"><Tag className="w-2 h-2" /> #historical</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="glass p-12 text-center space-y-2 opacity-30">
+            <Brain className="w-12 h-12 mx-auto mb-2" />
+            <p className="text-xs font-bold uppercase tracking-widest">No historical memory found</p>
+            <p className="text-[10px]">Start an agent to begin generating technical memories.</p>
+          </div>
+        )}
+      </div>
+
+      {/* AI Insights & Sentiment Sections (Existing) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {ai && (
+          <div className="glass p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <Sparkles className="w-5 h-5 text-blue-400" />
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Veredicto Global</span>
+            </div>
+            <h4 className={`text-4xl font-bold ${ai.recommendation === 'BUY' ? 'text-blue-400' : ai.recommendation === 'SELL' ? 'text-red-400' : 'text-white/60'}`}>
+              {ai.recommendation}
+            </h4>
+            <p className="text-sm text-white/60 leading-relaxed">"{ai.reasoning}"</p>
+          </div>
+        )}
+        {sentiment && (
+          <div className="glass p-6 space-y-4">
+             <div className="flex justify-between items-center">
+              <Brain className="w-5 h-5 text-purple-400" />
+              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Sentimiento Social</span>
+            </div>
+            <h4 className={`text-4xl font-bold ${sentiment.signal === 'BULLISH' ? 'text-blue-400' : sentiment.signal === 'BEARISH' ? 'text-red-400' : 'text-white/60'}`}>
+              {sentiment.signal}
+            </h4>
+            <p className="text-sm text-white/60 leading-relaxed">Score: {sentiment.sentiment_score.toFixed(2)} basado en {sentiment.news_analyzed} noticias.</p>
+          </div>
+        )}
+      </div>
+
       <Disclaimer />
     </div>
   );

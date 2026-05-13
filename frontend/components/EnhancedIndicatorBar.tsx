@@ -5,7 +5,7 @@ import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 interface EnhancedIndicatorBarProps {
   label: string;
-  explanation: string;
+  explanation?: string;
   value: number;
   min: number;
   max: number;
@@ -13,13 +13,10 @@ interface EnhancedIndicatorBarProps {
   negativeThreshold?: number;
   higherIsBetter?: boolean;
   unit?: string;
-  showTooltip?: boolean;
-  tooltipId?: string;
 }
 
 export default function EnhancedIndicatorBar({
   label,
-  explanation,
   value,
   min,
   max,
@@ -27,15 +24,12 @@ export default function EnhancedIndicatorBar({
   negativeThreshold,
   higherIsBetter = true,
   unit = '',
-  showTooltip = false,
-  tooltipId,
 }: EnhancedIndicatorBarProps) {
   const [animatedPercentage, setAnimatedPercentage] = useState(0);
   
   const percentage = ((value - min) / (max - min)) * 100;
   const clampedPercentage = Math.max(0, Math.min(100, percentage));
 
-  // Animate percentage on mount/update
   useEffect(() => {
     const timer = setTimeout(() => {
       setAnimatedPercentage(clampedPercentage);
@@ -43,145 +37,64 @@ export default function EnhancedIndicatorBar({
     return () => clearTimeout(timer);
   }, [clampedPercentage]);
 
-  // Determine color based on thresholds
-  let barColor = 'bg-white';
-  let textColor = 'text-black';
-  let statusText = '';
-  let arrowDirection: 'up' | 'down' | 'neutral' = 'neutral';
-  let interpretation = 'Neutro';
+  let statusColor = 'text-white/40';
+  let arrowColor = 'text-white/20';
   
   if (higherIsBetter) {
     if (positiveThreshold !== undefined && value >= positiveThreshold) {
-      barColor = 'bg-[#16a34a]'; // green-700
-      textColor = 'text-[#16a34a]';
-      statusText = 'BUENO';
-      arrowDirection = 'up';
-      interpretation = 'Favorable para compra';
+      statusColor = 'text-blue-400';
+      arrowColor = 'text-blue-400';
     } else if (negativeThreshold !== undefined && value <= negativeThreshold) {
-      barColor = 'bg-[#dc2626]'; // red-700
-      textColor = 'text-[#dc2626]';
-      statusText = 'MALO';
-      arrowDirection = 'down';
-      interpretation = 'Desfavorable';
-    } else {
-      barColor = 'bg-white';
-      textColor = 'text-black';
-      statusText = 'NEUTRAL';
-      arrowDirection = 'neutral';
-      interpretation = 'Neutro';
+      statusColor = 'text-red-400';
+      arrowColor = 'text-red-400';
     }
   } else {
     if (positiveThreshold !== undefined && value <= positiveThreshold) {
-      barColor = 'bg-[#16a34a]';
-      textColor = 'text-[#16a34a]';
-      statusText = 'BUENO';
-      arrowDirection = 'up';
-      interpretation = 'Favorable para compra';
+      statusColor = 'text-blue-400';
+      arrowColor = 'text-blue-400';
     } else if (negativeThreshold !== undefined && value >= negativeThreshold) {
-      barColor = 'bg-[#dc2626]';
-      textColor = 'text-[#dc2626]';
-      statusText = 'MALO';
-      arrowDirection = 'down';
-      interpretation = 'Desfavorable';
-    } else {
-      barColor = 'bg-white';
-      textColor = 'text-black';
-      statusText = 'NEUTRAL';
-      arrowDirection = 'neutral';
-      interpretation = 'Neutro';
+      statusColor = 'text-red-400';
+      arrowColor = 'text-red-400';
     }
   }
 
-  const tooltipContent = `Nivel actual: ${value.toFixed(1)}${unit} (${interpretation})`;
-  const uniqueId = tooltipId || `indicator-${label.toLowerCase().replace(/\s+/g, '-')}`;
-
   return (
-    <div className="bg-white border-2 border-black p-3">
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex-1">
-          <div className="brutal-text text-sm text-black flex items-center gap-2">
-            {label}
-            {/* Icon indicator */}
-            {arrowDirection === 'up' && (
-              <TrendingUp className="w-5 h-5 text-[#16a34a]" strokeWidth={3} />
-            )}
-            {arrowDirection === 'down' && (
-              <TrendingDown className="w-5 h-5 text-[#dc2626]" strokeWidth={3} />
-            )}
-            {arrowDirection === 'neutral' && (
-              <Minus className="w-5 h-5 text-black/50" strokeWidth={3} />
-            )}
-          </div>
-          {showTooltip && (
-            <div className="text-[9px] font-black uppercase text-black/60 mt-1 leading-tight">
-              {explanation}
-            </div>
-          )}
-        </div>
-        <div className="text-right ml-4">
-          <div className={`brutal-text text-base ${textColor} flex items-center justify-end gap-1`}>
-            {value.toFixed(1)}{unit}
-            {/* Value icon */}
-            {arrowDirection === 'up' && (
-              <TrendingUp className="w-4 h-4 text-[#16a34a]" strokeWidth={3} />
-            )}
-            {arrowDirection === 'down' && (
-              <TrendingDown className="w-4 h-4 text-[#dc2626]" strokeWidth={3} />
-            )}
-          </div>
-          <div className={`text-[10px] font-black uppercase ${textColor}`}>
-            {statusText}
-          </div>
-        </div>
+    <div className="space-y-2">
+      <div className="flex justify-between items-end">
+        <span className="text-xs font-bold text-white/40 tracking-widest uppercase">{label}</span>
+        <span className={`text-sm font-semibold ${statusColor}`}>
+          {value.toFixed(1)}{unit}
+        </span>
       </div>
       
-      {/* Enhanced gradient bar with animated arrow */}
-      <div 
-        className="relative h-12 bg-black border-2 border-black"
-        data-tooltip-id={uniqueId}
-        data-tooltip-content={tooltipContent}
-      >
-        {/* Gradient background */}
-        <div className="absolute inset-0 flex">
-          <div className="flex-1 bg-gradient-to-r from-[#dc2626] via-[#dc2626] to-[#f59e0b]" />
-          <div className="flex-1 bg-gradient-to-r from-[#f59e0b] via-[#eab308] to-[#eab308]" />
-          <div className="flex-1 bg-gradient-to-r from-[#eab308] via-[#eab308] to-[#eab308]" />
-          <div className="flex-1 bg-gradient-to-r from-[#eab308] via-[#84cc16] to-[#84cc16]" />
-          <div className="flex-1 bg-gradient-to-r from-[#84cc16] via-[#16a34a] to-[#16a34a]" />
-        </div>
+      <div className="relative h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+        {/* Threshold Markers */}
+        {positiveThreshold !== undefined && (
+          <div 
+            className="absolute top-0 bottom-0 w-px bg-white/10 z-10" 
+            style={{ left: `${((positiveThreshold - min) / (max - min)) * 100}%` }} 
+          />
+        )}
+        {negativeThreshold !== undefined && (
+          <div 
+            className="absolute top-0 bottom-0 w-px bg-white/10 z-10" 
+            style={{ left: `${((negativeThreshold - min) / (max - min)) * 100}%` }} 
+          />
+        )}
         
-        {/* Zone labels */}
-        <div className="absolute inset-0 flex items-center justify-between px-2 pointer-events-none z-0">
-          <span className="text-[8px] font-black uppercase text-white/70">VENTA</span>
-          <span className="text-[8px] font-black uppercase text-black/70">NEUTRAL</span>
-          <span className="text-[8px] font-black uppercase text-white/70">COMPRA</span>
-        </div>
+        {/* Progress Fill */}
+        <div 
+          className={`absolute inset-y-0 left-0 transition-all duration-1000 ease-out rounded-full ${
+            statusColor.replace('text-', 'bg-')
+          } opacity-40`}
+          style={{ width: `${animatedPercentage}%` }}
+        />
         
-        {/* Animated arrow marker */}
-        <div
-          className="absolute top-0 bottom-0 flex items-center justify-center z-20 transition-all duration-500 ease-out"
+        {/* Value Marker */}
+        <div 
+          className="absolute inset-y-0 w-1 bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)] z-20 transition-all duration-1000 ease-out rounded-full"
           style={{ left: `${animatedPercentage}%`, transform: 'translateX(-50%)' }}
-        >
-          {/* Arrow pointing down - enhanced */}
-          <div className="relative flex flex-col items-center">
-            {/* Arrow head */}
-            <div 
-              className="w-0 h-0 border-l-[10px] border-r-[10px] border-t-[14px] border-t-black border-l-transparent border-r-transparent drop-shadow-lg"
-            />
-            {/* Arrow shaft with color */}
-            <div 
-              className={`w-4 h-10 border-l-2 border-r-2 border-black -mt-[2px] transition-colors duration-300`}
-              style={{ 
-                backgroundColor: arrowDirection === 'up' ? '#16a34a' : arrowDirection === 'down' ? '#dc2626' : '#ffffff'
-              }}
-            />
-          </div>
-        </div>
-      </div>
-      
-      {/* Percentage indicator */}
-      <div className="text-[9px] font-black uppercase text-black mt-2 text-center border-t-2 border-black pt-2">
-        POSICIÓN: {Math.round(clampedPercentage)}% • {interpretation.toUpperCase()}
+        />
       </div>
     </div>
   );

@@ -166,6 +166,21 @@ CREATE TRIGGER update_strategies_updated_at BEFORE UPDATE ON trading.strategies
 CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON trading.orders
     FOR EACH ROW EXECUTE FUNCTION trading.update_updated_at_column();
 
+-- Sentiment Scores Table - Time-series optimized
+CREATE TABLE IF NOT EXISTS trading.sentiment_scores (
+    time TIMESTAMP WITH TIME ZONE NOT NULL,
+    symbol VARCHAR(50) NOT NULL,
+    sentiment_score DECIMAL(5, 2) NOT NULL,
+    signal VARCHAR(20) NOT NULL,
+    news_analyzed INTEGER NOT NULL,
+    PRIMARY KEY (time, symbol)
+);
+
+SELECT create_hypertable('trading.sentiment_scores', 'time', if_not_exists => TRUE);
+
+-- Create indexes for Sentiment
+CREATE INDEX idx_sentiment_symbol_time ON trading.sentiment_scores(symbol, time DESC);
+
 -- Log schema creation
 DO $$
 BEGIN

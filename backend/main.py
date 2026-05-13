@@ -23,6 +23,14 @@ app.add_middleware(
 # Include API Router
 app.include_router(api_router, prefix="/api/v1")
 
+import asyncio
+from app.services.yfinance_service import yfinance_service
+
+@app.on_event("startup")
+async def startup_event():
+    # Start the yfinance real-time price WebSocket stream in the background
+    asyncio.create_task(yfinance_service.start_price_stream())
+
 @app.get("/")
 async def root():
     return {

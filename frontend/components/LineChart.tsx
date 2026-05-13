@@ -1,6 +1,6 @@
 'use client';
 
-import { createChart, ColorType, LineSeries } from 'lightweight-charts';
+import { createChart, ColorType, AreaSeries, IChartApi } from 'lightweight-charts';
 import { useEffect, useRef } from 'react';
 
 interface LineChartProps {
@@ -9,8 +9,9 @@ interface LineChartProps {
   height?: number;
 }
 
-export default function LineChart({ data, color = '#ef4444', height = 280 }: LineChartProps) {
+export default function LineChart({ data, color = '#3B82F6', height = 280 }: LineChartProps) {
   const chartRef = useRef<HTMLDivElement>(null);
+  const chartInstance = useRef<IChartApi | null>(null);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -18,45 +19,56 @@ export default function LineChart({ data, color = '#ef4444', height = 280 }: Lin
 
     const chart = createChart(chartRef.current, {
       layout: {
-        background: { type: ColorType.Solid, color: '#ffffff' },
-        textColor: '#000000',
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: 'rgba(255, 255, 255, 0.4)',
         fontSize: 10,
-        fontFamily: 'Arial Black, sans-serif',
+        fontFamily: 'Inter, sans-serif',
       },
       grid: {
-        vertLines: { color: '#e5e5e5', style: 0, visible: true },
-        horzLines: { color: '#e5e5e5', style: 0, visible: true },
+        vertLines: { color: 'rgba(255, 255, 255, 0.03)', style: 0, visible: true },
+        horzLines: { color: 'rgba(255, 255, 255, 0.03)', style: 0, visible: true },
       },
       width: chartRef.current.clientWidth,
       height,
       timeScale: {
-        borderColor: '#000000',
+        borderColor: 'rgba(255, 255, 255, 0.05)',
         timeVisible: true,
         secondsVisible: false,
       },
       rightPriceScale: {
-        borderColor: '#000000',
-        textColor: '#000000',
+        borderColor: 'rgba(255, 255, 255, 0.05)',
+        textColor: 'rgba(255, 255, 255, 0.4)',
       },
+      crosshair: {
+        vertLine: { color: 'rgba(255, 255, 255, 0.2)', labelBackgroundColor: '#1A1A1A' },
+        horzLine: { color: 'rgba(255, 255, 255, 0.2)', labelBackgroundColor: '#1A1A1A' },
+      }
     });
 
-    const lineSeries = chart.addSeries(LineSeries, {
-      color,
-      lineWidth: 3,
+    chartInstance.current = chart;
+
+    const areaSeries = chart.addSeries(AreaSeries, {
+      lineColor: color,
+      topColor: `${color}33`, // 20% opacity
+      bottomColor: `${color}00`, // 0% opacity
+      lineWidth: 2,
       crosshairMarkerVisible: true,
-      crosshairMarkerBorderColor: color,
+      crosshairMarkerBorderColor: '#FFFFFF',
       crosshairMarkerBackgroundColor: color,
+      priceLineVisible: false,
     });
 
     const formatted = [...data]
       .sort((a, b) => a.time - b.time)
       .map((d) => ({ time: d.time as any, value: d.value }));
 
-    lineSeries.setData(formatted);
+    areaSeries.setData(formatted);
     chart.timeScale().fitContent();
 
     const handleResize = () => {
-      if (chartRef.current) chart.applyOptions({ width: chartRef.current.clientWidth });
+      if (chartRef.current && chartInstance.current) {
+        chartInstance.current.applyOptions({ width: chartRef.current.clientWidth });
+      }
     };
     window.addEventListener('resize', handleResize);
 
@@ -66,5 +78,5 @@ export default function LineChart({ data, color = '#ef4444', height = 280 }: Lin
     };
   }, [data, color, height]);
 
-  return <div ref={chartRef} className="w-full bg-white" />;
+  return <div ref={chartRef} className="w-full" />;
 }

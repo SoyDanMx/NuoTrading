@@ -1,12 +1,43 @@
 import asyncio
 import json
-import random
+import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.core.ws_manager import manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+@router.websocket("/signals")
+async def signals_websocket(websocket: WebSocket):
+    """Global WebSocket for agent signals."""
+    logger.info(f"Handshake request received for signals from {websocket.client}")
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+
+@router.post("/test-signal")
+async def test_signal(data: dict):
+    """Force a manual signal for testing UI."""
+    from datetime import datetime
+    message = {
+        "type": "SIGNAL",
+        "symbol": data.get("symbol", "TEST"),
+        "action": data.get("action", "BUY"),
+        "confidence": data.get("confidence", 99),
+        "reason": data.get("reason", "Test signal reason"),
+        "timestamp": datetime.now().isoformat()
+    }
+    await manager.broadcast(message)
+    return {"status": "Signal broadcasted", "message": message}
+
 @router.websocket("/{symbol}")
 async def websocket_endpoint(websocket: WebSocket, symbol: str):
+    """Individual stock price WebSocket."""
     await websocket.accept()
     from app.services.market_data import MarketDataService
     market_service = MarketDataService()
@@ -31,6 +62,6 @@ async def websocket_endpoint(websocket: WebSocket, symbol: str):
             await asyncio.sleep(10) 
             
     except WebSocketDisconnect:
-        print(f"WebSocket disconnected for {symbol}")
+        pass
     except Exception as e:
         print(f"WS Error: {e}")

@@ -1,17 +1,22 @@
 import type { Metadata } from "next";
-import { Anton } from "next/font/google";
+import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
-const anton = Anton({
-  weight: "400",
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-anton",
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "SYSTEM.V1 - NUO TRADE",
-  description: "Plataforma de análisis técnico y trading algorítmico",
+  title: "NUO TRADE | Smart Finance",
+  description: "Advanced Algorithmic Trading & Analysis",
 };
 
 export default function RootLayout({
@@ -20,8 +25,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={anton.variable}>
-      <body className="antialiased bg-black text-white" suppressHydrationWarning>
+    <html lang="es" className={`${inter.variable} ${playfair.variable}`}>
+      <body className="antialiased bg-black text-white selection:bg-blue-500/30" suppressHydrationWarning>
         {children}
       </body>
     </html>

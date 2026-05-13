@@ -1,12 +1,14 @@
 import finnhub
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 import pandas as pd
 import time
 
 import httpx
 from app.core.config import settings
+from app.services.ai_orchestrator import AIOrchestrator
+from app.services.sentiment_service import SentimentService
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ class MarketDataService:
             logger.info("Finnhub API key loaded (key=%s...)", api_key[:4] if len(api_key) >= 4 else "***")
         self._api_key = api_key or "demo"
         self.finnhub_client = finnhub.Client(api_key=self._api_key)
+        self.ai_orchestrator = AIOrchestrator()
+        self.sentiment_service = SentimentService()
 
     async def _fetch_quote_http(self, symbol: str) -> Dict:
         """Fetch quote via Finnhub REST API (async, for debugging and reliability)."""
@@ -105,6 +109,119 @@ class MarketDataService:
                 "market_status": "closed",
                 "error": str(e),
             }
+
+    async def get_ohlcv(self, symbol: str, timeframe: str = "D", days: int = 30) -> List[Dict]:
+        """Get historical OHLCV data using yfinance."""
+        symbol = symbol.upper()
+        # Robust integer parsing for 'days'
+        try:
+            days_str = str(days).split(':')[0]
+            days_int = int(days_str)
+        except (ValueError, IndexError, TypeError):
+            days_int = 30
+
+        try:
+            import requests
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            })
+            
+            import yfinance as yf
+            ticker = yf.Ticker(symbol, session=session)
+            # Use explicit dates to avoid period issues
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=days_int)
+            
+            # Map timeframe to yfinance intervals
+            interval = "1d" if timeframe == "D" else "1h" if timeframe == "60" else "1d"
+            df = ticker.history(start=start_dt.strftime('%Y-%m-%d'), end=end_dt.strftime('%Y-%m-%d'), interval=interval)
+            
+            logger.info(f"yfinance result for {symbol}: {len(df)} rows")
+            
+            if df.empty:
+                # 2. Fallback to Finnhub
+                try:
+                    logger.info(f"yfinance failed for {symbol}, trying Finnhub fallback...")
+                    import time
+                    res = self.finnhub_client.stock_candles(
+                        symbol, 
+                        resolution='D' if timeframe == 'D' else '60', 
+                        _from=int(start_dt.timestamp()), 
+                        to=int(end_dt.timestamp())
+                    )
+                    if res.get('s') == 'ok':
+                        candles = [
+                            {
+                                "time": datetime.fromtimestamp(t).strftime('%Y-%m-%d'),
+                                "open": float(o),
+                                "high": float(h),
+                                "low": float(l),
+                                "close": float(c),
+                                "volume": int(v)
+                            }
+                            for t, o, h, l, c, v in zip(res['t'], res['o'], res['h'], res['l'], res['c'], res['v'])
+                        ]
+                        logger.info(f"Finnhub fallback success for {symbol}: {len(candles)} candles")
+                        return candles
+                except Exception as fe:
+                    logger.warning(f"Finnhub fallback failed for {symbol}: {fe}")
+
+                # 3. Ultimate Fallback: Synthetic Data
+                logger.warning(f"All APIs failed for {symbol}. Generating synthetic data...")
+                import random
+                quote = await self.get_stock_quote(symbol)
+                base_price = quote.get('current_price', 150.0)
+                
+                synthetic_candles = []
+                for i in range(days_int):
+                    dt = datetime.now() - timedelta(days=days_int-i)
+                    change = base_price * random.uniform(-0.02, 0.02)
+                    open_p = base_price
+                    close_p = base_price + change
+                    high_p = max(open_p, close_p) + (random.random() * base_price * 0.01)
+                    low_p = min(open_p, close_p) - (random.random() * base_price * 0.01)
+                    
+                    synthetic_candles.append({
+                        "time": dt.strftime('%Y-%m-%d'),
+                        "open": round(open_p, 2),
+                        "high": round(high_p, 2),
+                        "low": round(low_p, 2),
+                        "close": round(close_p, 2),
+                        "volume": random.randint(1000000, 5000000)
+                    })
+                    base_price = close_p
+                return synthetic_candles
+            
+            candles = [
+                {
+                    "time": t.strftime('%Y-%m-%d %H:%M:%S') if timeframe != "D" else t.strftime('%Y-%m-%d'),
+                    "open": float(row['Open']),
+                    "high": float(row['High']),
+                    "low": float(row['Low']),
+                    "close": float(row['Close']),
+                    "volume": int(row['Volume'])
+                }
+                for t, row in df.iterrows()
+            ]
+            return candles
+        except Exception as e:
+            logger.error(f"Error in get_ohlcv for {symbol}: {e}")
+            return []
+
+    async def get_stock_news(self, symbol: str) -> List[Dict]:
+        """Fetch latest news for a symbol using Finnhub."""
+        try:
+            # Finnhub requires date range for news
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            
+            # Using synchronous client as finnhub-python is not async
+            news = self.finnhub_client.company_news(symbol.upper(), _from=start_date, to=end_date)
+            return news[:10]
+        except Exception as e:
+            logger.warning(f"Error fetching news for {symbol}: {e}")
+            return []
 
     def _calculate_support_resistance(self, df: pd.DataFrame, period: int = 30) -> Dict:
         """Calculate support and resistance levels from historical data."""
@@ -201,206 +318,156 @@ class MarketDataService:
     def _calculate_fibonacci_levels(self, df: pd.DataFrame) -> Dict:
         """Calculate Fibonacci retracement levels."""
         try:
-            if len(df) < 30:
-                return {"levels": [], "current_level": None}
-            
-            # Use last 30 days to find swing high and low
-            recent_df = df.tail(30)
-            swing_high = float(recent_df['High'].max())
-            swing_low = float(recent_df['Low'].min())
+            # Use last 60 days to find high/low
+            period_df = df.tail(60)
+            high = float(period_df['High'].max())
+            low = float(period_df['Low'].min())
+            diff = high - low
             current_price = float(df['Close'].iloc[-1])
             
-            # Calculate price range
-            price_range = swing_high - swing_low
-            
-            # Standard Fibonacci levels
-            fib_levels = {
-                "0.0": swing_high,
-                "23.6": swing_high - (price_range * 0.236),
-                "38.2": swing_high - (price_range * 0.382),
-                "50.0": swing_high - (price_range * 0.5),
-                "61.8": swing_high - (price_range * 0.618),
-                "78.6": swing_high - (price_range * 0.786),
-                "100.0": swing_low
+            levels = {
+                "0.0": high,
+                "23.6": high - 0.236 * diff,
+                "38.2": high - 0.382 * diff,
+                "50.0": high - 0.5 * diff,
+                "61.8": high - 0.618 * diff,
+                "100.0": low
             }
             
-            # Determine which level current price is near
-            current_level = None
-            min_distance = float('inf')
-            for level_name, level_price in fib_levels.items():
-                distance = abs(current_price - level_price) / level_price * 100
-                if distance < min_distance and distance < 3.0:  # Within 3%
-                    min_distance = distance
-                    current_level = level_name
+            # Find nearest level
+            nearest_level = "0.0"
+            min_diff = float('inf')
+            for lvl, val in levels.items():
+                d = abs(current_price - val)
+                if d < min_diff:
+                    min_diff = d
+                    nearest_level = lvl
             
             return {
-                "levels": {k: round(v, 2) for k, v in fib_levels.items()},
-                "swing_high": round(swing_high, 2),
-                "swing_low": round(swing_low, 2),
-                "current_price": round(current_price, 2),
-                "current_level": current_level,
-                "trend": "up" if current_price > swing_high - (price_range * 0.5) else "down"
+                "levels": {k: round(v, 2) for k, v in levels.items()},
+                "current_level": nearest_level,
+                "price_to_level_pct": round((min_diff / current_price) * 100, 2)
             }
         except Exception as e:
-            logger.warning(f"Error calculating Fibonacci levels: {e}")
-            return {"levels": {}, "current_level": None}
+            logger.warning(f"Error calculating Fibonacci: {e}")
+            return {"levels": {}, "current_level": None, "price_to_level_pct": 0}
 
     async def get_technical_indicators(self, symbol: str) -> Dict:
-        """Calculate technical indicators using Finnhub candles."""
+        """Get technical indicators for a symbol."""
+        symbol = symbol.upper()
         try:
-            # Get candles for the last 6 months
-            end = int(time.time())
-            start = end - (180 * 24 * 60 * 60) # 180 days
+            # Get historical data (1 year)
+            end_date = int(time.time())
+            start_date = end_date - (365 * 24 * 60 * 60)
             
-            res = self.finnhub_client.stock_candles(symbol.upper(), 'D', start, end)
-            
-            if res['s'] != 'ok':
-                raise Exception(f"Insufficient historical data for {symbol} from Finnhub")
-            
-            # Create DataFrame
-            df = pd.DataFrame({
-                'Close': res['c'],
-                'High': res['h'],
-                'Low': res['l'],
-                'Open': res['o'],
-                'Volume': res['v'],
-                'Timestamp': res['t']
+            # For simplicity, we'll fetch from Yahoo Finance via yfinance
+            # but in production we'd use TimescaleDB or Finnhub Candles
+            # Setup a custom session to avoid Yahoo Finance blocks
+            import requests
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
             
-            if len(df) < 20:
-                raise Exception(f"Insufficient candles for {symbol}")
+            import yfinance as yf
+            ticker = yf.Ticker(symbol, session=session)
+            df = ticker.history(period="1y")
             
-            # Calculate RSI (14-day)
-            rsi = self._calculate_rsi(df['Close'], period=14)
+            if df.empty:
+                raise ValueError(f"No historical data for {symbol}")
+            
+            # Calculate RSI
+            rsi = self._calculate_rsi(df['Close'])
             
             # Calculate MACD
-            macd_line, signal_line, macd_histogram = self._calculate_macd(df['Close'])
+            macd_line, signal_line, macd_hist = self._calculate_macd(df['Close'])
             
-            # Calculate volume ratio
-            avg_volume = df['Volume'].tail(20).mean()
-            current_volume = df['Volume'].iloc[-1]
+            # Moving Averages
+            sma20 = float(df['Close'].rolling(window=20).mean().iloc[-1])
+            sma50 = float(df['Close'].rolling(window=50).mean().iloc[-1])
+            sma200 = float(df['Close'].rolling(window=200).mean().iloc[-1])
+            
+            # Volume Analysis
+            avg_volume = float(df['Volume'].tail(20).mean())
+            current_volume = float(df['Volume'].iloc[-1])
             volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
             
-            # Get moving averages
-            sma_20 = df['Close'].rolling(window=20).mean().iloc[-1]
-            sma_50 = df['Close'].rolling(window=50).mean().iloc[-1]
+            # Support/Resistance
+            sr = self._calculate_support_resistance(df)
             
-            # Calculate new advanced indicators
-            support_resistance = self._calculate_support_resistance(df, period=30)
-            divergence = self._detect_divergence(df, rsi, macd_histogram)
-            fibonacci = self._calculate_fibonacci_levels(df)
+            # Divergence
+            divergence = self._detect_divergence(df, rsi, macd_hist)
+            
+            # Fibonacci
+            fib = self._calculate_fibonacci_levels(df)
+            
+            # Chart Data (last 30 days)
+            chart_df = df.tail(30)
+            chart_data = [{"time": t.strftime('%Y-%m-%d'), "value": float(v)} for t, v in zip(chart_df.index, chart_df['Close'])]
+            
+            # Candlestick Data
+            candles = [
+                {
+                    "time": t.strftime('%Y-%m-%d'),
+                    "open": float(o),
+                    "high": float(h),
+                    "low": float(l),
+                    "close": float(c)
+                }
+                for t, o, h, l, c in zip(chart_df.index, chart_df['Open'], chart_df['High'], chart_df['Low'], chart_df['Close'])
+            ]
             
             return {
+                "symbol": symbol,
                 "rsi": round(float(rsi), 2),
                 "macd": {
-                    "value": round(float(macd_line), 4),
-                    "signal": round(float(signal_line), 4),
-                    "histogram": round(float(macd_histogram), 4),
-                    "is_positive": float(macd_histogram) > 0
+                    "line": round(float(macd_line), 2),
+                    "signal": round(float(signal_line), 2),
+                    "histogram": round(float(macd_hist), 2)
+                },
+                "moving_averages": {
+                    "sma20": round(sma20, 2),
+                    "sma50": round(sma50, 2),
+                    "sma200": round(sma200, 2)
                 },
                 "volume": {
                     "current": int(current_volume),
                     "average": int(avg_volume),
-                    "ratio": round(float(volume_ratio), 2)
+                    "ratio": round(volume_ratio, 2)
                 },
-                "moving_averages": {
-                    "sma_20": round(float(sma_20), 2),
-                    "sma_50": round(float(sma_50), 2),
-                    "trend": "bullish" if sma_20 > sma_50 else "bearish"
-                },
-                "support_resistance": support_resistance,
+                "support_resistance": sr,
                 "divergence": divergence,
-                "fibonacci": fibonacci
+                "fibonacci": fib,
+                "chart_data": chart_data,
+                "candles": candles
             }
         except Exception as e:
-            print(f"Error calculating indicators for {symbol}: {str(e)}")
+            logger.error(f"Error fetching indicators for {symbol}: {e}")
             return {
+                "symbol": symbol,
                 "rsi": 50.0,
-                "macd": {"value": 0, "signal": 0, "histogram": 0, "is_positive": False},
+                "macd": {"line": 0, "signal": 0, "histogram": 0},
+                "moving_averages": {"sma20": 0, "sma50": 0, "sma200": 0},
                 "volume": {"current": 0, "average": 0, "ratio": 1.0},
-                "moving_averages": {"sma_20": 0, "sma_50": 0, "trend": "neutral"},
-                "is_simulated": True
+                "support_resistance": {"support_level": 0, "resistance_level": 0, "signal": "neutral"},
+                "divergence": {"detected": False},
+                "fibonacci": {"current_level": None},
+                "chart_data": [],
+                "candles": []
             }
 
-    async def get_ohlcv(self, symbol: str, resolution: str = 'D', days: int = 30) -> List[Dict]:
-        """Get OHLCV (candlestick) data for a symbol."""
-        try:
-            end = int(time.time())
-            start = end - (days * 24 * 60 * 60)
-            
-            res = self.finnhub_client.stock_candles(symbol.upper(), resolution, start, end)
-            
-            if res['s'] != 'ok':
-                raise Exception(f"Insufficient historical data for {symbol}")
-            
-            ohlcv = []
-            for i in range(len(res['t'])):
-                ohlcv.append({
-                    "time": res['t'][i],
-                    "open": float(res['o'][i]),
-                    "high": float(res['h'][i]),
-                    "low": float(res['l'][i]),
-                    "close": float(res['c'][i]),
-                    "volume": int(res['v'][i])
-                })
-            return ohlcv
-        except Exception as e:
-            print(f"Error fetching OHLCV for {symbol}: {str(e)}")
-            # Fallback/Simulated data
-            import random
-            base_price = 150.0
-            simulated = []
-            now = int(time.time())
-            for i in range(days):
-                t = now - ((days - i) * 24 * 60 * 60)
-                o = base_price + random.uniform(-2, 2)
-                c = o + random.uniform(-3, 3)
-                simulated.append({
-                    "time": t,
-                    "open": round(o, 2),
-                    "high": round(max(o, c) + random.uniform(0, 1), 2),
-                    "low": round(min(o, c) - random.uniform(0, 1), 2),
-                    "close": round(c, 2),
-                    "volume": random.randint(100000, 1000000)
-                })
-                base_price = c
-            return simulated
-    
     async def get_vix(self) -> Dict:
-        """Get VIX (Volatility Index) data using Finnhub."""
+        """Get VIX data (market volatility index)."""
         try:
-            # Finnhub VIX symbol is usually ^VIX or similar, depends on provider
-            # For free tier, we might need to fallback to something else or use ^VIX if supported
-            quote = self.finnhub_client.quote('VIX') 
-            if not quote or 'c' not in quote or quote['c'] == 0:
-                # Fallback to yfinance for VIX as it's less likely to be blocked than multiple stock tickers
-                import yfinance as yf
-                vix = yf.Ticker("^VIX")
-                hist = vix.history(period="1d")
-                current_vix = hist['Close'].iloc[-1] if not hist.empty else 20.0
-            else:
-                current_vix = quote['c']
-            
-            # VIX interpretation
-            if current_vix < 12:
-                status = "very_low"
-                risk_level = "low"
-            elif current_vix < 20:
-                status = "low"
-                risk_level = "moderate"
-            elif current_vix < 30:
-                status = "elevated"
-                risk_level = "high"
-            else:
-                status = "high"
-                risk_level = "very_high"
-            
-            return {
-                "value": round(float(current_vix), 2),
-                "status": status,
-                "risk_level": risk_level
-            }
-        except Exception as e:
+            import yfinance as yf
+            vix = yf.Ticker("^VIX").history(period="1d")
+            if not vix.empty:
+                val = float(vix['Close'].iloc[-1])
+                status = "low" if val < 20 else "high" if val > 30 else "moderate"
+                risk_level = "low" if val < 15 else "high" if val > 25 else "moderate"
+                return {"value": round(val, 2), "status": status, "risk_level": risk_level}
+            return {"value": 14.08, "status": "low", "risk_level": "moderate"}
+        except Exception:
             return {"value": 14.08, "status": "low", "risk_level": "moderate"}
     
     async def get_complete_analysis(self, symbol: str) -> Dict:
@@ -415,15 +482,32 @@ class MarketDataService:
             # Get VIX
             vix = await self.get_vix()
             
+            # Get News
+            news = await self.get_stock_news(symbol)
+            
+            # Get Sentiment (Fase 1)
+            sentiment = await self.sentiment_service.get_symbol_sentiment(symbol)
+            
             # Calculate recommendation
-            recommendation = self._calculate_recommendation(indicators, vix)
+            recommendation = self._calculate_recommendation(indicators, vix, sentiment)
+            
+            # Get AI Insights
+            ai_insights = await self.ai_orchestrator.analyze_market_context(
+                symbol=symbol,
+                price_data=quote,
+                indicators=indicators,
+                news=news
+            )
             
             return {
                 "symbol": symbol.upper(),
                 "quote": quote,
                 "indicators": indicators,
                 "vix": vix,
+                "news": news,
                 "recommendation": recommendation,
+                "ai_insights": ai_insights,
+                "sentiment": sentiment,
                 "timestamp": datetime.utcnow().isoformat()
             }
         except Exception as e:
@@ -454,210 +538,86 @@ class MarketDataService:
             macd_histogram.iloc[-1] if not pd.isna(macd_histogram.iloc[-1]) else 0
         )
     
-    def _calculate_recommendation(self, indicators: Dict, vix: Dict) -> Dict:
-        """Calculate buy/sell recommendation based on indicators."""
+    def _calculate_recommendation(self, indicators: Dict, vix: Dict, sentiment: Dict = None) -> Dict:
+        """Calculate buy/sell recommendation based on indicators and AI sentiment."""
         score = 0
         signals = []
-        breakdown = []  # For beginner mode: detailed contribution per indicator
+        breakdown = []
         
         # RSI Analysis (weight: 25% of 100)
         rsi = indicators.get('rsi', 50)
         rsi_contribution = 0
         if rsi < 30:
-            score += 2
-            rsi_contribution = 25  # Max contribution for oversold
-            signals.append("RSI oversold (bullish)")
-        elif rsi < 50:
-            score += 1
-            rsi_contribution = 12
-            signals.append("RSI below neutral")
+            rsi_contribution = 25
+            signals.append("RSI en zona de sobreventa (Bullish)")
+        elif rsi < 40:
+            rsi_contribution = 15
         elif rsi > 70:
-            score -= 2
-            rsi_contribution = -25  # Negative for overbought
-            signals.append("RSI overbought (bearish)")
-        elif rsi > 50:
-            score -= 1
-            rsi_contribution = -12
-            signals.append("RSI above neutral")
-        breakdown.append({
-            "label": "RSI",
-            "value": rsi,
-            "contribution": rsi_contribution,
-            "weight": 25
-        })
+            rsi_contribution = -25
+            signals.append("RSI en zona de sobrecompra (Bearish)")
+        elif rsi > 60:
+            rsi_contribution = -15
+        breakdown.append({"label": "RSI", "value": rsi, "contribution": rsi_contribution, "weight": 25})
         
         # MACD Analysis (weight: 20% of 100)
         macd = indicators.get('macd', {})
+        hist = macd.get('histogram', 0)
         macd_contribution = 0
-        if macd.get('is_positive', False):
-            score += 2
+        if hist > 0:
             macd_contribution = 20
-            signals.append("MACD positive (bullish)")
-        else:
-            score -= 1
-            macd_contribution = -10
-            signals.append("MACD negative (bearish)")
-        breakdown.append({
-            "label": "MACD",
-            "value": macd.get('histogram', 0),
-            "contribution": macd_contribution,
-            "weight": 20
-        })
+            signals.append("MACD Histograma positivo (Momentum)")
+        elif hist < 0:
+            macd_contribution = -20
+            signals.append("MACD Histograma negativo (Weakness)")
+        breakdown.append({"label": "MACD", "value": hist, "contribution": macd_contribution, "weight": 20})
         
-        # Moving Average Analysis (weight: 30% of 100)
-        ma = indicators.get('moving_averages', {})
-        ma_contribution = 0
-        if ma.get('trend') == 'bullish':
-            score += 1
-            ma_contribution = 30
-            signals.append("MA trend bullish")
-        else:
-            score -= 1
-            ma_contribution = -15
-            signals.append("MA trend bearish")
+        # Sentiment Analysis (Fase 1 - weight: 30%)
+        sentiment_contribution = 0
+        if sentiment:
+            s_score = sentiment.get('sentiment_score', 0.0)
+            sentiment_contribution = int(s_score * 30)
+            if sentiment.get('signal') == 'BULLISH':
+                signals.append("Sentimiento de noticias Bullish")
+            elif sentiment.get('signal') == 'BEARISH':
+                signals.append("Sentimiento de noticias Bearish")
         breakdown.append({
-            "label": "Medias Móviles",
-            "value": 1 if ma.get('trend') == 'bullish' else -1,
-            "contribution": ma_contribution,
+            "label": "Sentimiento IA", 
+            "value": sentiment.get('sentiment_score', 0) if sentiment else 0, 
+            "contribution": sentiment_contribution, 
             "weight": 30
         })
-        
-        # Volume Analysis (weight: 15% of 100)
-        volume = indicators.get('volume', {})
-        volume_ratio = volume.get('ratio', 1.0)
-        volume_contribution = 0
-        if volume_ratio > 1.5:
-            score += 1
-            volume_contribution = 15
-            signals.append("High volume (strong interest)")
-        elif volume_ratio < 0.7:
-            score -= 1
-            volume_contribution = -7
-            signals.append("Low volume (weak interest)")
-        breakdown.append({
-            "label": "Volumen",
-            "value": volume_ratio,
-            "contribution": volume_contribution,
-            "weight": 15
-        })
-        
-        # VIX Analysis (weight: 10% of 100)
-        vix_value = vix.get('value', 20)
-        vix_contribution = 0
-        if vix_value > 30:
-            score -= 1
-            vix_contribution = -10  # High VIX = risk
-            signals.append("High VIX (market fear)")
-        elif vix_value < 15:
-            score += 1
-            vix_contribution = 10
-            signals.append("Low VIX (market calm)")
-        breakdown.append({
-            "label": "VIX",
-            "value": vix_value,
-            "contribution": vix_contribution,
-            "weight": 10
-        })
-        
-        # Support/Resistance Analysis (weight: 10% of 100)
-        sr = indicators.get('support_resistance', {})
-        sr_contribution = 0
-        if sr.get('near_support', False):
-            score += 1
-            sr_contribution = 10
-            signals.append("Price near support (bullish)")
-        elif sr.get('near_resistance', False):
-            score -= 1
-            sr_contribution = -5
-            signals.append("Price near resistance (bearish)")
-        breakdown.append({
-            "label": "Soporte/Resistencia",
-            "value": sr.get('support_distance_pct', 0),
-            "contribution": sr_contribution,
-            "weight": 10
-        })
-        
-        # Divergence Analysis (weight: 10% of 100)
-        divergence = indicators.get('divergence', {})
-        div_contribution = 0
-        if divergence.get('detected', False):
-            div_type = divergence.get('type')
-            if div_type == 'bullish':
-                score += 1
-                div_contribution = 10
-                signals.append("Bullish divergence detected")
-            elif div_type == 'bearish':
-                score -= 1
-                div_contribution = -10
-                signals.append("Bearish divergence detected")
-        breakdown.append({
-            "label": "Divergencia",
-            "value": divergence.get('strength', 0),
-            "contribution": div_contribution,
-            "weight": 10
-        })
-        
-        # Fibonacci Analysis (weight: 10% of 100)
-        fib = indicators.get('fibonacci', {})
-        fib_contribution = 0
-        current_level = fib.get('current_level')
-        if current_level:
-            # Fibonacci levels near key retracements are significant
-            if current_level in ['23.6', '38.2', '61.8']:
-                score += 1
-                fib_contribution = 10
-                signals.append(f"Price at Fibonacci {current_level}% level")
-            elif current_level == '50.0':
-                fib_contribution = 0  # Neutral at 50%
-        breakdown.append({
-            "label": "Fibonacci",
-            "value": float(current_level) if current_level else 0,
-            "contribution": fib_contribution,
-            "weight": 10
-        })
-        
+
         # Normalize score to 0-100
-        # Base score: 50 (neutral), add contributions from all indicators
-        # Total weights: RSI(25) + MACD(20) + MA(30) + Volume(15) + VIX(10) + SR(10) + Divergence(10) + Fibonacci(10) = 130
-        # But we normalize contributions to sum to 100
-        normalized_score = 50 + sum(b['contribution'] for b in breakdown)
+        normalized_score = 50 + rsi_contribution + macd_contribution + sentiment_contribution
         normalized_score = max(0, min(100, normalized_score))
         
-        # Force MANTENER if VIX > 30 (high risk)
+        # VIX Risk Adjustment
+        vix_value = vix.get('value', 20)
         if vix_value > 30:
             normalized_score = 50
             action = "MANTENER"
             color = "yellow"
-            confidence = "low"
             signals.append("Mercado volátil - Mantener posición")
-        # Determine recommendation
         elif normalized_score >= 70:
             action = "COMPRA FUERTE"
             color = "green"
-            confidence = "high"
         elif normalized_score >= 55:
             action = "COMPRA"
             color = "lightgreen"
-            confidence = "moderate"
         elif normalized_score <= 30:
             action = "VENTA FUERTE"
             color = "red"
-            confidence = "high"
         elif normalized_score <= 45:
             action = "VENTA"
             color = "orange"
-            confidence = "moderate"
         else:
             action = "MANTENER"
             color = "yellow"
-            confidence = "low"
         
         return {
             "action": action,
-            "score": score,
-            "normalized_score": normalized_score,  # 0-100 for beginner mode
+            "normalized_score": normalized_score,
             "color": color,
-            "confidence": confidence,
             "signals": signals,
-            "breakdown": breakdown  # For beginner mode UI
+            "breakdown": breakdown
         }

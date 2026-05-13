@@ -1,5 +1,7 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import health, market, stocks, portfolio, ws, market_hours
+from app.api.v1.endpoints import (
+    health, market, stocks, portfolio, ws, market_hours, agents, memory
+)
 
 api_router = APIRouter()
 
@@ -10,3 +12,5 @@ api_router.include_router(stocks.router, prefix="/stocks", tags=["stocks"])
 api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 api_router.include_router(ws.router, prefix="/ws", tags=["websocket"])
 api_router.include_router(market_hours.router, prefix="/market-hours", tags=["market-hours"])
+api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
+api_router.include_router(memory.router, prefix="/memory", tags=["memory"])

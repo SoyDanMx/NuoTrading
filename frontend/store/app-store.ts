@@ -11,8 +11,12 @@ interface AppState {
   setWatchlist: (symbols: string[]) => void;
   addToWatchlist: (symbol: string) => void;
   removeFromWatchlist: (symbol: string) => void;
+  holdings: Record<string, number>;
+  updateHolding: (symbol: string, quantity: number) => void;
   isBeginnerMode: boolean;
   setIsBeginnerMode: (beginner: boolean) => void;
+  hasStarted: boolean;
+  setHasStarted: (started: boolean) => void;
 }
 
 const DEFAULT_WATCHLIST = ['AAPL', 'TSLA', 'NVDA', 'GOOGL', 'META', 'MSFT', 'AMZN', 'NFLX'];
@@ -60,6 +64,11 @@ export const useAppStore = create<AppState>((set) => ({
       }
       return { watchlist: updated };
     }),
+  holdings: { 'AAPL': 10, 'TSLA': 5, 'NVDA': 15 },
+  updateHolding: (symbol, quantity) =>
+    set((s) => ({
+      holdings: { ...s.holdings, [symbol.toUpperCase()]: quantity },
+    })),
   isBeginnerMode: loadBeginnerMode(),
   setIsBeginnerMode: (beginner) => {
     set({ isBeginnerMode: beginner });
@@ -67,4 +76,6 @@ export const useAppStore = create<AppState>((set) => ({
       localStorage.setItem('nuotrade-beginner-mode', String(beginner));
     }
   },
+  hasStarted: false,
+  setHasStarted: (started) => set({ hasStarted: started }),
 }));

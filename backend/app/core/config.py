@@ -44,11 +44,21 @@ class Settings(BaseSettings):
     COINBASE_API_SECRET: str = ""
     
     # Market Data APIs
-    FINNHUB_API_KEY: str = "demo"  # Get free key at https://finnhub.io
+    FINNHUB_API_KEY: str = "demo"
+    OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
+    DEEPSEEK_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = ""
+    AI_PROVIDER: str = "openai" # Options: openai, gemini, deepseek, groq, anthropic, smart
+    
+    # Technical Memory (Obsidian)
+    OBSIDIAN_VAULT_PATH: str = "" # Absolute path to Obsidian vault
     
     class Config:
         # Load .env from backend/ and from project root (for Docker/local)
         env_file = [".env", "../.env"]
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()

@@ -1,9 +1,22 @@
 from fastapi import APIRouter, HTTPException
 from typing import Optional
 from app.services.market_data import MarketDataService
+from app.services.sentiment_service import SentimentService
 
 router = APIRouter()
 market_service = MarketDataService()
+sentiment_service = SentimentService()
+
+# ... existing endpoints
+
+@router.get("/sentiment/{symbol}")
+async def get_stock_sentiment(symbol: str):
+    """Get AI-driven sentiment analysis for a stock."""
+    try:
+        sentiment = await sentiment_service.get_symbol_sentiment(symbol.upper())
+        return sentiment
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/quote/{symbol}")
 async def get_stock_quote(symbol: str):
@@ -38,5 +51,29 @@ async def get_complete_analysis(symbol: str):
     try:
         analysis = await market_service.get_complete_analysis(symbol.upper())
         return analysis
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+from app.services.yfinance_service import yfinance_service
+
+@router.get("/fundamentals/{symbol}")
+async def get_stock_fundamentals(symbol: str):
+    """Get rich fundamental data including insider transactions and institutional holders."""
+    try:
+        data = await yfinance_service.get_fundamentals(symbol)
+        if "error" in data:
+            raise HTTPException(status_code=400, detail=data["error"])
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/options/{symbol}")
+async def get_stock_options(symbol: str):
+    """Get option chain data for the nearest expiration."""
+    try:
+        data = await yfinance_service.get_options(symbol)
+        if "error" in data:
+            raise HTTPException(status_code=400, detail=data["error"])
+        return data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

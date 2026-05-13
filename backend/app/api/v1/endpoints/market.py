@@ -28,11 +28,13 @@ async def get_ticker(symbol: str):
 async def get_ohlcv(
     symbol: str,
     timeframe: str = "D",
-    days: int = 30
+    days: str = "30" # Change to string to handle "14:0:0" cases
 ):
     """Get OHLCV (candlestick) data for a symbol."""
     try:
-        data = await market_service.get_ohlcv(symbol.upper(), timeframe, days)
+        # Robust conversion: handle cases like "14:0:0" or "30"
+        days_int = int(str(days).split(':')[0])
+        data = await market_service.get_ohlcv(symbol.upper(), timeframe, days_int)
         return {
             "symbol": symbol.upper(),
             "timeframe": timeframe,
