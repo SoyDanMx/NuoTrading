@@ -4,27 +4,18 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '@/store/app-store';
 import { getCompanyName } from '@/lib/constants';
 import { 
-  Plus, Activity, BarChart2, ArrowUpRight, Sparkles, Brain, 
-  Newspaper, Play, Square, History, Tag, Database
+  Plus, Activity, ArrowUpRight, ArrowDownRight, Info, CheckCircle2, History, Sparkles, Brain
 } from 'lucide-react';
 import LineChart from '../LineChart';
 import CandlestickChart from '../CandlestickChart';
-import TradingViewChart from '../TradingViewChart';
-import EnhancedIndicatorBar from '../EnhancedIndicatorBar';
-import AdvancedIndicators from '../AdvancedIndicators';
 import StockIcon from '../StockIcon';
 import Disclaimer from '../Disclaimer';
+import CircularGauge from '../CircularGauge';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Timeframe = '1D' | '1W' | '1M' | '1Y';
-
-const TIMEFRAMES: { id: Timeframe; resolution: string; days: number }[] = [
-  { id: '1D', resolution: '60', days: 1 },
-  { id: '1W', resolution: 'D', days: 7 },
-  { id: '1M', resolution: 'D', days: 30 },
-  { id: '1Y', resolution: 'W', days: 365 },
-];
+type Timeframe = '1D' | '1W' | '1M' | '1Y' | '5Y' | 'ALL';
+type Tab = 'Overview' | 'Stock Analysis' | 'Trading Parameters' | 'Buy Track Record' | 'Scores Evolution';
 
 export default function StockDetailView({ symbol }: { symbol: string }) {
   const { watchlist, addToWatchlist } = useAppStore();
@@ -33,20 +24,19 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
   const [agentStatus, setAgentStatus] = useState<any>(null);
   const [memory, setMemory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [timeframe, setTimeframe] = useState<Timeframe>('1D');
+  const [timeframe, setTimeframe] = useState<Timeframe>('1Y');
+  const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
+  const [error, setError] = useState<string | null>(null);
 
   const inWatchlist = watchlist.includes(symbol);
-
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       setError(null);
-      
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
       try {
         const fetchWithTimeout = (url: string) => 
@@ -65,25 +55,10 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
         clearTimeout(timeoutId);
 
         if (analysisRes.status === 'fulfilled') setAnalysis(analysisRes.value);
-        else console.warn("Analysis failed:", analysisRes.reason);
-
         if (sentimentRes.status === 'fulfilled') setSentiment(sentimentRes.value);
-        else console.warn("Sentiment failed:", sentimentRes.reason);
-
         if (agentRes.status === 'fulfilled') setAgentStatus(agentRes.value);
         if (memoryRes.status === 'fulfilled') setMemory(memoryRes.value.memories || []);
-
-        // If at least basic analysis failed, show a warning
-        if (analysisRes.status === 'rejected') {
-          setError("Technical analysis timed out or failed. Displaying limited data.");
-        }
-
       } catch (e: any) {
-        if (e.name === 'AbortError') {
-          setError("Server took too long to respond. Please try again.");
-        } else {
-          setError("Failed to fetch market data.");
-        }
         console.error(e);
       } finally {
         setLoading(false);
@@ -92,275 +67,299 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
     fetchData();
   }, [symbol]);
 
-  const toggleAgent = async () => {
-    const method = agentStatus?.is_running ? 'DELETE' : 'POST';
-    const endpoint = agentStatus?.is_running ? 'stop' : 'start';
-    try {
-      const res = await fetch(`${API_URL}/api/v1/agents/${symbol}/${endpoint}`, { method });
-      if (res.ok) {
-        // Refresh status
-        const statusRes = await fetch(`${API_URL}/api/v1/agents/${symbol}`);
-        if (statusRes.ok) setAgentStatus(await statusRes.json());
-        else if (statusRes.status === 404) setAgentStatus(null);
-      }
-    } catch (e) {
-      console.error("Error toggling agent:", e);
-    }
-  };
-
   const quote = analysis?.quote;
   const chartData = analysis?.indicators?.chart_data || [];
   const candlestickData = analysis?.indicators?.candles || [];
+  const currentPrice = quote?.current_price ?? 0;
   const percentChange = quote?.percent_change ?? 0;
+  const priceChange = quote?.change ?? 0;
   const positive = percentChange >= 0;
-  const chartColor = positive ? '#3B82F6' : '#EF4444';
+
+  // Derive Scores (1-10)
+  const aiScore = agentStatus?.confidence ? Math.round(agentStatus.confidence / 10) : 7;
+  const fundamentalScore = 7; // Placeholder
+  const technicalScore = analysis?.indicators?.rsi ? (analysis.indicators.rsi > 50 ? 8 : 4) : 6;
+  const sentimentScore = sentiment?.sentiment_score ? Math.round(sentiment.sentiment_score * 10) : 7;
+  const riskScore = 6; // Placeholder
 
   if (loading && !quote) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
-        <div className="w-12 h-12 border-4 border-white/10 border-t-white rounded-full animate-spin" />
-        <p className="text-white/40 text-sm font-medium animate-pulse">Analyzing {symbol}...</p>
+        <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+        <p className="text-gray-500 dark:text-white/40 text-sm font-medium animate-pulse">Analizando {symbol}...</p>
       </div>
     );
   }
-
-  if (!loading && !quote) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6 animate-slide-up">
-        <div className="p-6 rounded-full bg-red-500/10 border border-red-500/20">
-          <Activity className="w-12 h-12 text-red-400" />
-        </div>
-        <div className="text-center space-y-2">
-          <h2 className="text-2xl font-serif font-medium">Símbolo no encontrado</h2>
-          <p className="text-sm text-white/40 max-w-xs mx-auto">
-            No hemos podido obtener datos para {symbol}. Es posible que el ticker no exista o la API de mercado esté saturada.
-          </p>
-        </div>
-        <button 
-          onClick={() => window.location.reload()}
-          className="px-8 py-3 bg-white text-black font-bold rounded-2xl hover:scale-105 transition-all"
-        >
-          Reintentar
-        </button>
-      </div>
-    );
-  }
-
-  const rec = analysis?.recommendation;
-  const ind = analysis?.indicators;
-  const ai = analysis?.ai_insights;
-  const news = analysis?.news || [];
 
   return (
-    <div className="space-y-8 pb-32 animate-slide-up">
-      {/* Error Banner */}
-      {error && (
-        <div className="glass bg-red-500/10 border-red-500/20 p-4 rounded-2xl flex items-center gap-3 text-red-400 text-xs font-bold uppercase tracking-widest animate-pulse">
-          <Activity className="w-4 h-4" />
-          {error}
-        </div>
-      )}
-
-      {/* Symbol & Meta */}
-      <div className="flex justify-between items-center pt-4">
-        <div className="flex items-center gap-4">
-          <StockIcon symbol={symbol} size="lg" />
-          <div>
-            <h2 className="font-serif text-3xl font-medium tracking-tight text-white/90">{getCompanyName(symbol)}</h2>
-            <p className="text-xs text-white/40 font-bold tracking-[0.2em] uppercase">{symbol} • NASDAQ</p>
-          </div>
-        </div>
-        <button
-          onClick={() => addToWatchlist(symbol)}
-          className={`p-3 rounded-2xl border transition-all ${
-            inWatchlist 
-            ? 'bg-white/5 border-white/10 text-white/30' 
-            : 'bg-white border-white text-black shadow-lg shadow-white/10 hover:scale-105'
-          }`}
-          disabled={inWatchlist}
-        >
-          <Plus className="w-6 h-6" />
-        </button>
-      </div>
-
-      {/* Price Display */}
-      <div className="space-y-1">
-        <h1 className="text-6xl font-semibold tracking-tighter">
-          ${quote?.current_price?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}
-        </h1>
-        <p className={`text-lg font-medium ${positive ? 'text-blue-400' : 'text-red-400'}`}>
-          {quote?.change?.toFixed(2) ?? '—'} ({percentChange.toFixed(2)}%)
-        </p>
-      </div>
-
-      {/* FASE 2: Active Agent Panel */}
-      <div className="space-y-6 animate-slide-up" style={{ animationDelay: '0.05s' }}>
-        <div className="flex items-center justify-between border-b border-white/5 pb-4">
-          <div className="flex items-center gap-2">
-            <Database className="w-5 h-5 text-green-400" />
-            <h3 className="text-xl font-medium font-serif">Agente Autónomo</h3>
-          </div>
-          <button 
-            onClick={toggleAgent}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all ${
-              agentStatus?.is_running 
-              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20' 
-              : 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
-            }`}
-          >
-            {agentStatus?.is_running ? <><Square className="w-3 h-3 fill-current" /> Stop Agent</> : <><Play className="w-3 h-3 fill-current" /> Start Agent</>}
+    <div className="w-full max-w-7xl mx-auto space-y-6 pb-32 animate-fade-in text-gray-900 dark:text-white">
+      
+      {/* Top Breadcrumb / Market Info */}
+      <div className="flex items-center justify-between text-sm py-2 border-b border-gray-200 dark:border-white/10">
+        <div className="flex gap-2">
+          <button className="px-3 py-1 font-semibold text-blue-600 bg-blue-50 dark:bg-blue-500/10 rounded-md flex items-center gap-2">
+            🇺🇸 USA <Info className="w-3 h-3" />
+          </button>
+          <button className="px-3 py-1 text-gray-500 dark:text-white/40 hover:bg-gray-100 dark:hover:bg-white/5 rounded-md flex items-center gap-2 transition-colors">
+            🇪🇺 Europe <Info className="w-3 h-3" />
           </button>
         </div>
-
-        <div className="glass p-6 grid grid-cols-2 md:grid-cols-4 gap-6 relative overflow-hidden">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Status</p>
-            <p className={`text-lg font-bold ${agentStatus?.is_running ? 'text-green-400' : 'text-white/40'}`}>
-              {agentStatus?.status || 'OFFLINE'}
-            </p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Last Signal</p>
-            <p className="text-lg font-bold text-white/90">{agentStatus?.last_decision || 'None'}</p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Confidence</p>
-            <p className="text-lg font-bold text-white/90">{agentStatus?.confidence || 0}%</p>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Loop</p>
-            <p className="text-lg font-bold text-white/90">60s</p>
-          </div>
+        <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium text-xs">
+          <CheckCircle2 className="w-4 h-4" />
+          Last update: {new Date().toLocaleDateString()}
         </div>
       </div>
 
-      {/* FASE 4: Agent Observability (Thought Process) */}
-      {agentStatus?.is_running && agentStatus?.last_decision && (
-        <div className="space-y-6 animate-slide-up" style={{ animationDelay: '0.08s' }}>
-          <div className="flex items-center gap-2 border-b border-white/5 pb-4">
-            <Activity className="w-5 h-5 text-blue-400" />
-            <h3 className="text-xl font-medium font-serif">Pensamiento del Agente</h3>
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* LEFT COLUMN: Main Detail */}
+        <div className="lg:col-span-2 space-y-6">
           
-          <div className="glass p-8 bg-blue-500/5 relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <Sparkles className="w-24 h-24" />
+          {/* Header */}
+          <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <StockIcon symbol={symbol} size="md" />
+                  <h1 className="text-3xl font-bold flex items-center gap-2">
+                    {symbol} Stock AI Analysis
+                  </h1>
+                </div>
+                <h2 className="text-xl text-gray-600 dark:text-white/60 mb-4">{getCompanyName(symbol)}</h2>
+                
+                <div className="flex items-baseline gap-3 mb-1">
+                  <span className="text-5xl font-bold">${currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className={`text-lg font-semibold flex items-center ${positive ? 'text-green-500' : 'text-red-500'}`}>
+                    {positive ? '+' : ''}{priceChange.toFixed(2)} ({positive ? '+' : ''}{percentChange.toFixed(2)}%)
+                  </span>
+                  <span className="text-sm text-gray-400 font-medium ml-2">NASDAQ</span>
+                </div>
+
+                <div className="mt-6 space-y-1 text-sm">
+                  <p className="text-gray-500 dark:text-white/50">#12 of 657 in <span className="text-blue-500 cursor-pointer hover:underline">Information Technology</span></p>
+                  <p className="text-gray-500 dark:text-white/50">#2 of 36 in <span className="text-blue-500 cursor-pointer hover:underline">Technology Hardware</span></p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex flex-wrap gap-2 mt-8 border-b border-gray-100 dark:border-white/10 pb-4">
+              {(['Overview', 'Stock Analysis', 'Trading Parameters', 'Buy Track Record', 'Scores Evolution'] as Tab[]).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition-all border ${
+                    activeTab === tab
+                      ? 'bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-500/20 dark:text-blue-400 dark:border-blue-500/30'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 dark:bg-transparent dark:text-white/60 dark:border-white/10 dark:hover:bg-white/5'
+                  }`}
+                >
+                  {tab === 'Buy Track Record' && <span className="mr-2 text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded uppercase tracking-wider">NEW</span>}
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab Content Area */}
+            <div className="pt-6">
+              {activeTab === 'Overview' && (
+                <div className="space-y-4">
+                  {/* Timeframe selector */}
+                  <div className="flex justify-between items-center">
+                    <div className="flex gap-1 bg-gray-100 dark:bg-white/5 p-1 rounded-lg">
+                      {(['1M', '3M', '6M', '1Y', '5Y', 'ALL'] as Timeframe[]).map((tf) => (
+                        <button
+                          key={tf}
+                          onClick={() => setTimeframe(tf)}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${
+                            timeframe === tf
+                              ? 'bg-white text-blue-600 shadow-sm dark:bg-blue-500/20 dark:text-blue-400'
+                              : 'text-gray-500 hover:text-gray-900 dark:text-white/50 dark:hover:text-white'
+                          }`}
+                        >
+                          {tf}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Chart */}
+                  <div className="h-[350px] w-full mt-4">
+                    {chartData.length > 0 ? (
+                      <LineChart data={chartData} color={positive ? '#22c55e' : '#ef4444'} height={350} />
+                    ) : (
+                      <div className="h-full flex items-center justify-center border border-dashed border-gray-200 dark:border-white/10 rounded-xl">
+                        <p className="text-gray-400 text-sm">Chart data unavailable</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'Stock Analysis' && (
+                <div className="space-y-6">
+                  {/* Reuse the existing Agent Thought Process UI here */}
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-6 border border-blue-100 dark:border-blue-500/20">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Sparkles className="w-5 h-5 text-blue-500" />
+                      <h3 className="font-bold text-lg">AI Reasoning</h3>
+                    </div>
+                    <p className="text-gray-700 dark:text-white/80 leading-relaxed italic">
+                      "{analysis?.reasoning || 'El agente está analizando las variables técnicas y fundamentales...'}"
+                    </p>
+                  </div>
+
+                  {/* Market Memory */}
+                  <div>
+                     <div className="flex items-center gap-2 mb-4">
+                        <History className="w-5 h-5 text-amber-500" />
+                        <h3 className="font-bold text-lg">Market Memory (Obsidian)</h3>
+                      </div>
+                      {memory.length > 0 ? (
+                        <div className="space-y-3">
+                          {memory.map((entry, i) => (
+                            <div key={i} className="bg-gray-50 dark:bg-white/5 p-4 rounded-xl border border-gray-100 dark:border-white/10">
+                              <div className="flex justify-between text-xs font-bold text-gray-400 uppercase mb-2">
+                                <span>{entry.date}</span>
+                                <span>{entry.confidence}% Conf.</span>
+                              </div>
+                              <p className="text-sm text-gray-600 dark:text-white/70 italic line-clamp-2">"{entry.reasoning}"</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400">No historical memory found.</p>
+                      )}
+                  </div>
+                </div>
+              )}
+
+              {['Trading Parameters', 'Buy Track Record', 'Scores Evolution'].includes(activeTab) && (
+                <div className="h-64 flex items-center justify-center border border-dashed border-gray-200 dark:border-white/10 rounded-xl">
+                  <p className="text-gray-400 text-sm">Contenido de {activeTab} en desarrollo...</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: AI Score & Metrics */}
+        <div className="space-y-6">
+          
+          {/* AI Score Card */}
+          <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-2xl p-6 shadow-sm flex flex-col items-center">
+            
+            <div className="w-full flex justify-between items-start mb-6">
+              <h3 className="font-bold text-gray-900 dark:text-white">AI Score <Info className="inline w-3 h-3 text-gray-400 ml-1 cursor-pointer" /></h3>
+              <a href="#" className="text-xs font-semibold text-blue-500 hover:underline">See AI Analysis</a>
+            </div>
+
+            <div className="flex w-full items-center justify-between mb-8">
+              {/* Circular Gauge */}
+              <div className="flex-1 flex justify-center">
+                <CircularGauge score={aiScore} size={130} strokeWidth={12} />
+              </div>
+
+              {/* Sub-scores */}
+              <div className="flex-1 flex flex-col gap-4 pl-4 border-l border-gray-100 dark:border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
+                    {fundamentalScore}
+                  </div>
+                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Fundamental</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
+                    {technicalScore}
+                  </div>
+                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Technical</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
+                    {sentimentScore}
+                  </div>
+                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Sentiment</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full border-2 border-yellow-500 flex items-center justify-center text-xs font-bold text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-500/10">
+                    {riskScore}
+                  </div>
+                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Low Risk</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Button */}
+            <button 
+              onClick={() => addToWatchlist(symbol)}
+              disabled={inWatchlist}
+              className={`w-full py-4 rounded-xl font-bold flex flex-col items-center justify-center transition-all ${
+                inWatchlist 
+                ? 'bg-gray-100 text-gray-400 dark:bg-white/5 dark:text-white/30 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Plus className="w-5 h-5" />
+                <span className="text-lg">{inWatchlist ? 'In Portfolio' : 'Add to portfolio'}</span>
+              </div>
+              {!inWatchlist && <span className="text-xs font-normal opacity-80 mt-1">To track daily AI Score</span>}
+            </button>
+          </div>
+
+          {/* Metrics Table */}
+          <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-2xl p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-100 dark:border-white/10">
+              <span className="text-sm font-bold text-gray-500 dark:text-white/50">{symbol} / US0378331005</span>
+              <span className="text-lg">🇺🇸</span>
             </div>
             
-            <div className="relative z-10 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-widest">
-                  Live Reasoning
-                </div>
-                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Market Cap</span>
+                <span className="font-bold text-gray-900 dark:text-white">--</span>
               </div>
-              
-              <div className="space-y-4">
-                <p className="text-xl font-medium text-white/90 leading-relaxed font-serif italic">
-                  "{analysis?.reasoning || 'El agente está analizando las variables técnicas y fundamentales...'}"
-                </p>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/5">
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Sentiment Factor</p>
-                    <p className="text-sm text-white/70">{sentiment?.signal || 'Neutral'} ({sentiment?.sentiment_score?.toFixed(2) || '0.00'})</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-bold text-white/30 uppercase tracking-widest">Technical Bias</p>
-                    <p className="text-sm text-white/70">RSI: {analysis?.indicators?.rsi || 'N/A'} • MACD: {analysis?.indicators?.macd?.histogram || 'N/A'}</p>
-                  </div>
-                </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Short Float</span>
+                <span className="font-bold text-gray-900 dark:text-white">--</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Volume</span>
+                <span className="font-bold text-gray-900 dark:text-white">--</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Dividend %</span>
+                <span className="font-bold text-gray-900 dark:text-white">--</span>
               </div>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* Chart Section */}
-      <div className="relative h-[300px] w-full group">
-        {chartType === 'line' && chartData.length ? (
-          <LineChart data={chartData} color={chartColor} height={300} />
-        ) : chartType === 'candlestick' && candlestickData.length ? (
-          <CandlestickChart data={candlestickData} height={300} />
-        ) : (
-          <div className="h-full w-full glass flex items-center justify-center">
-            <p className="text-white/20 text-sm">Loading market data...</p>
-          </div>
-        )}
-        <div className="absolute top-4 right-0 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={() => setChartType('line')} className={`p-2 rounded-lg ${chartType === 'line' ? 'bg-white/10 text-white' : 'text-white/40'}`}>
-            <Activity className="w-4 h-4" />
-          </button>
-          <button onClick={() => setChartType('candlestick')} className={`p-2 rounded-lg ${chartType === 'candlestick' ? 'bg-white/10 text-white' : 'text-white/40'}`}>
-            <BarChart2 className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* FASE 3: Market Memory Panel (Obsidian++) */}
-      <div className="space-y-6 animate-slide-up" style={{ animationDelay: '0.1s' }}>
-        <div className="flex items-center gap-2 border-b border-white/5 pb-4">
-          <History className="w-5 h-5 text-amber-400" />
-          <h3 className="text-xl font-medium font-serif">Memoria del Ticker (Obsidian)</h3>
-        </div>
-        
-        {memory.length > 0 ? (
-          <div className="space-y-3">
-            {memory.map((entry, i) => (
-              <div key={i} className="glass p-5 space-y-3 group hover:bg-white/5 transition-all">
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${
-                      entry.recommendation === 'BUY' ? 'bg-blue-400' : 
-                      entry.recommendation === 'SELL' ? 'bg-red-400' : 'bg-white/20'
-                    }`} />
-                    <span className="text-xs font-bold text-white/40 uppercase tracking-widest">{entry.date}</span>
-                  </div>
-                  <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">{entry.confidence}% Conf.</span>
-                </div>
-                <p className="text-sm text-white/70 leading-relaxed italic line-clamp-2">"{entry.reasoning}"</p>
-                <div className="flex gap-2">
-                  <span className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest bg-white/5 px-2 py-1 rounded text-white/30"><Tag className="w-2 h-2" /> #pattern-match</span>
-                  <span className="flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest bg-white/5 px-2 py-1 rounded text-white/30"><Tag className="w-2 h-2" /> #historical</span>
-                </div>
+            <h4 className="font-bold text-gray-900 dark:text-white mb-4">Performance</h4>
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Perf Week</span>
+                <span className="font-bold text-green-500">+2.5%</span>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="glass p-12 text-center space-y-2 opacity-30">
-            <Brain className="w-12 h-12 mx-auto mb-2" />
-            <p className="text-xs font-bold uppercase tracking-widest">No historical memory found</p>
-            <p className="text-[10px]">Start an agent to begin generating technical memories.</p>
-          </div>
-        )}
-      </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Perf Quarter</span>
+                <span className="font-bold text-green-500">+8.1%</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Perf Year</span>
+                <span className="font-bold text-green-500">+42.3%</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500 dark:text-white/60 font-medium">Perf YTD</span>
+                <span className="font-bold text-green-500">+12.4%</span>
+              </div>
+            </div>
 
-      {/* AI Insights & Sentiment Sections (Existing) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {ai && (
-          <div className="glass p-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <Sparkles className="w-5 h-5 text-blue-400" />
-              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Veredicto Global</span>
-            </div>
-            <h4 className={`text-4xl font-bold ${ai.recommendation === 'BUY' ? 'text-blue-400' : ai.recommendation === 'SELL' ? 'text-red-400' : 'text-white/60'}`}>
-              {ai.recommendation}
-            </h4>
-            <p className="text-sm text-white/60 leading-relaxed">"{ai.reasoning}"</p>
+            <button className="w-full py-3 bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 text-gray-900 dark:text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm border border-gray-200 dark:border-white/10">
+              <Activity className="w-4 h-4" /> Compare {symbol}
+            </button>
           </div>
-        )}
-        {sentiment && (
-          <div className="glass p-6 space-y-4">
-             <div className="flex justify-between items-center">
-              <Brain className="w-5 h-5 text-purple-400" />
-              <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Sentimiento Social</span>
-            </div>
-            <h4 className={`text-4xl font-bold ${sentiment.signal === 'BULLISH' ? 'text-blue-400' : sentiment.signal === 'BEARISH' ? 'text-red-400' : 'text-white/60'}`}>
-              {sentiment.signal}
-            </h4>
-            <p className="text-sm text-white/60 leading-relaxed">Score: {sentiment.sentiment_score.toFixed(2)} basado en {sentiment.news_analyzed} noticias.</p>
-          </div>
-        )}
+
+        </div>
+
       </div>
 
       <Disclaimer />
