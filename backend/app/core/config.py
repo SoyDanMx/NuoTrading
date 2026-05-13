@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # CORS (env may be comma-separated string, e.g. CORS_ORIGINS=http://localhost:3000,http://localhost:3001)
-    CORS_ORIGINS: List[str] = [
+    from typing import Union, List
+    CORS_ORIGINS: Union[str, List[str]] = [
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3004",
