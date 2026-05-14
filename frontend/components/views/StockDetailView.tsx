@@ -104,7 +104,7 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
             🇪🇺 Europe <Info className="w-3 h-3" />
           </button>
         </div>
-        <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium text-xs">
+        <div suppressHydrationWarning className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium text-xs">
           <CheckCircle2 className="w-4 h-4" />
           Last update: {new Date().toLocaleDateString()}
         </div>
