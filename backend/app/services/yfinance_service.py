@@ -12,8 +12,16 @@ yf_logger.setLevel(logging.CRITICAL)
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Core portfolio / trending symbols to stream
-SYMBOLS = ["NVDA", "AAPL", "TSLA", "MSFT", "GOOGL", "META", "AMZN", "NFLX"]
+# Core symbols to stream (expanded for Discovery/Watchlist)
+SYMBOLS = [
+    "NVDA", "AAPL", "TSLA", "MSFT", "GOOGL", "META", "AMZN", "NFLX", # Tech
+    "BTC-USD", "ETH-USD", "SOL-USD", # Crypto
+    "^SPX", "^IXIC", "^MXX", # Indices
+    "EURUSD=X", "MXNUSD=X", # Forex
+    "AMXL.MX", "WALMEX.MX", "GFNORTEO.MX", # Mexico
+    "AMD", "ARM", "SMCI", # Semi
+    "SPY", "QQQ" # ETFs
+]
 
 class YFinanceService:
     """Service integrating yfinance as the primary market data source."""
