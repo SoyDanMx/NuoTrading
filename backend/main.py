@@ -28,6 +28,14 @@ from app.services.yfinance_service import yfinance_service
 
 @app.on_event("startup")
 async def startup_event():
+    import os
+    print("--- DEPLOYMENT DIAGNOSTICS ---")
+    print(f"ANTHROPIC configurado: {bool(os.environ.get('ANTHROPIC_API_KEY'))}")
+    print(f"GROQ configurado: {bool(os.environ.get('GROQ_API_KEY'))}")
+    print(f"SUPABASE_URL configurado: {bool(os.environ.get('SUPABASE_URL'))}")
+    print(f"DATABASE_URL detectada: {bool(settings.DATABASE_URL and 'supabase' in settings.DATABASE_URL)}")
+    print("------------------------------")
+    
     # Start the yfinance real-time price WebSocket stream in the background
     asyncio.create_task(yfinance_service.start_price_stream())
 

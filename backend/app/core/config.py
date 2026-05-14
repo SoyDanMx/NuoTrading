@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from typing import List, Union
 
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # CORS (env may be comma-separated string, e.g. CORS_ORIGINS=http://localhost:3000,http://localhost:3001)
+    # CORS
     CORS_ORIGINS: Union[str, List[str]] = [
         "http://localhost:3000",
         "http://localhost:3001",
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3001",
         "http://127.0.0.1:3004",
         "https://nuo-trading-frontend.vercel.app",
-        "*", # Allow all for production debugging
+        "*", 
     ]
 
     @field_validator("CORS_ORIGINS", mode="before")
@@ -39,33 +39,35 @@ class Settings(BaseSettings):
             return [x.strip() for x in v.split(",") if x.strip()]
         return v
 
-    # Exchange API Keys (Optional - configure as needed)
+    # Exchange API Keys
     BINANCE_API_KEY: str = ""
     BINANCE_API_SECRET: str = ""
     COINBASE_API_KEY: str = ""
     COINBASE_API_SECRET: str = ""
     
     # Market Data APIs
-    FINNHUB_API_KEY: str = "demo"
+    FINNHUB_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
-    AI_PROVIDER: str = "openai" # Options: openai, gemini, deepseek, groq, anthropic, smart
+    AI_PROVIDER: str = "openai" 
     
-    # Technical Memory (Obsidian)
-    OBSIDIAN_VAULT_PATH: str = "" # Absolute path to Obsidian vault
+    # Technical Memory
+    OBSIDIAN_VAULT_PATH: str = ""
     
-    # Social Signal APIs (Phase A)
+    # Social Signal APIs
     REDDIT_CLIENT_ID: str = ""
     REDDIT_CLIENT_SECRET: str = ""
     TWITTER_BEARER_TOKEN: str = ""
     
-    class Config:
-        # Load .env from backend/ and from project root (for Docker/local)
-        env_file = [".env", "../.env"]
-        case_sensitive = True
-        extra = "ignore"
+    # Pydantic V2 Configuration
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../.env"),
+        env_file_encoding='utf-8',
+        case_sensitive=False,
+        extra="ignore"
+    )
 
 settings = Settings()

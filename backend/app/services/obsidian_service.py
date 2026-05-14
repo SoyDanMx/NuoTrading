@@ -11,11 +11,15 @@ class ObsidianService:
     """Service for managing Technical Memory in Obsidian."""
 
     def __init__(self):
-        self.vault_path = settings.OBSIDIAN_VAULT_PATH
-        if not self.vault_path:
-            logger.warning("OBSIDIAN_VAULT_PATH not set. Technical Memory will not be saved.")
-        elif not os.path.exists(self.vault_path):
-            logger.error(f"Obsidian vault path does not exist: {self.vault_path}")
+        # Default to /tmp/obsidian for ephemeral production storage if not set
+        self.vault_path = settings.OBSIDIAN_VAULT_PATH or "/tmp/obsidian"
+        
+        try:
+            os.makedirs(self.vault_path, exist_ok=True)
+            logger.info(f"Obsidian vault initialized at: {self.vault_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize Obsidian vault at {self.vault_path}: {e}")
+            self.vault_path = None
 
     def save_analysis(self, symbol: str, analysis: Dict[str, Any]):
         """Save an enriched market analysis to a markdown file in Obsidian."""

@@ -3,7 +3,6 @@ import logging
 import json
 from typing import List, Dict, Any
 from openai import AsyncOpenAI
-import google.generativeai as genai
 from anthropic import AsyncAnthropic
 from app.core.config import settings
 from app.services.obsidian_service import ObsidianService
@@ -53,17 +52,6 @@ class AIOrchestrator:
 
         # LLM Clients
         self.openai_client = None
-        self.gemini_model = None
-        self.groq_client = None
-        self.anthropic_client = None
-
-        if settings.OPENAI_API_KEY:
-            self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-        if settings.GEMINI_API_KEY:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            self.gemini_model = genai.GenerativeModel('gemini-1.5-pro')
-
         if settings.GROQ_API_KEY:
             self.groq_client = AsyncOpenAI(
                 api_key=settings.GROQ_API_KEY,
@@ -214,8 +202,6 @@ Responde SOLO con este JSON:
             return await self._call_openai_compat(
                 self.openai_client, "gpt-4o", prompt
             )
-        elif self.provider == "gemini" and self.gemini_model:
-            return await self._call_gemini(prompt)
         return await self._best_available(prompt)
 
     async def _smart_route(self, prompt: str) -> Dict[str, Any]:
@@ -238,8 +224,6 @@ Responde SOLO con este JSON:
             )
         if self.openai_client:
             return await self._call_openai_compat(self.openai_client, "gpt-4o", prompt)
-        if self.gemini_model:
-            return await self._call_gemini(prompt)
         return {"error": "No LLM providers available"}
 
     # ------------------------------------------------------------------
@@ -258,17 +242,6 @@ Responde SOLO con este JSON:
             return json.loads(resp.choices[0].message.content)
         except Exception as e:
             logger.error("Error with %s: %s", model, e)
-            return {"error": str(e)}
-
-    async def _call_gemini(self, prompt: str) -> Dict[str, Any]:
-        try:
-            resp = await self.gemini_model.generate_content_async(
-                prompt,
-                generation_config={"response_mime_type": "application/json"},
-            )
-            return json.loads(resp.text)
-        except Exception as e:
-            logger.error("Gemini error: %s", e)
             return {"error": str(e)}
 
     async def _call_anthropic(self, prompt: str) -> Dict[str, Any]:
