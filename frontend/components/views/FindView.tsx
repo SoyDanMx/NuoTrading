@@ -7,7 +7,7 @@ import StockIcon from '../StockIcon';
 import { getCompanyName } from '@/lib/constants';
 import { useAgentSignals } from '@/hooks/useAgentSignals';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://nuo-backend.onrender.com';
 
 const CATEGORIES = [
   { id: 'POPULAR', label: 'Todos', icon: Star },

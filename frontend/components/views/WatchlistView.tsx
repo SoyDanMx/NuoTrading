@@ -5,7 +5,7 @@ import { useAppStore } from '@/store/app-store';
 import { getCompanyName } from '@/lib/constants';
 import StockIcon from '../StockIcon';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://nuo-backend.onrender.com';
 
 interface Quote {
   symbol: string;

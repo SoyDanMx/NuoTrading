@@ -7,7 +7,7 @@ import StockIcon from '../StockIcon';
 import MiniSparkline from '../MiniSparkline';
 import { Wallet, TrendingUp, ArrowUpRight, ArrowDownRight, PieChart as PieChartIcon } from 'lucide-react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://nuo-backend.onrender.com';
 
 interface Quote {
   symbol: string;

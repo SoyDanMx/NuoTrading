@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
   
   // API proxy configuration
   async rewrites() {
-    let apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    // Priority: Env Var > Hardcoded Render Safety-Net > Localhost
+    let apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://nuo-backend.onrender.com';
     
     // Ensure protocol
     if (apiUrl && !apiUrl.startsWith('http')) {

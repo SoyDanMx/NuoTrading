@@ -7,7 +7,7 @@ import RecommendationCard from './RecommendationCard';
 import CandlestickChart from './CandlestickChart';
 import PortfolioSummary from './PortfolioSummary';
 import { WS_URL } from '@/lib/api';
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://nuo-backend.onrender.com';
 
 interface StockAnalysis {
     symbol: string;

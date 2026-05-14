@@ -21,10 +21,10 @@ export function useAgentSignals() {
     if (typeof window === 'undefined') return;
 
     // Use environment variable if present, otherwise fallback to API_URL or current host
-    let wsUrl = process.env.NEXT_PUBLIC_WS_URL || '';
+    let wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'https://nuo-backend.onrender.com';
     
     if (!wsUrl) {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://nuo-backend.onrender.com';
       if (apiUrl.startsWith('http')) {
         wsUrl = apiUrl.replace(/^http/, 'ws');
       } else {
