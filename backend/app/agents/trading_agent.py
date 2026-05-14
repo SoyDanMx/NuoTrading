@@ -17,8 +17,8 @@ class AgentStatus:
 
 class TradingAgent:
     """
-    Autonomous Trading Agent for a specific ticker.
-    Runs a loop every 60 seconds to analyze market context.
+    Autonomous Trading Agent for a specific ticker (Skill-Based).
+    Runs a loop every 60 seconds to execute all AgentSkills in parallel.
     """
 
     def __init__(self, symbol: str):
@@ -27,13 +27,25 @@ class TradingAgent:
         self.is_running = False
         self.task = None
         
-        # Services
-        self.market_data = MarketDataService()
-        self.sentiment_service = SentimentService()
-        self.ai_orchestrator = AIOrchestrator()
         self.obsidian = ObsidianService()
-        
+        self.skills: list[AgentSkill] = self._load_skills()
         self.last_analysis = {}
+
+    def _load_skills(self) -> list[AgentSkill]:
+        """Carga todas las skills disponibles dinámicamente"""
+        from app.agents.skills.technical_skill import TechnicalSkill
+        from app.agents.skills.sentiment_skill import SentimentSkill
+        from app.agents.skills.options_flow_skill import OptionsFlowSkill
+        from app.agents.skills.earnings_skill import EarningsSkill
+        from app.agents.skills.social_skill import SocialSkill
+        
+        return [
+            TechnicalSkill(),
+            SentimentSkill(),
+            OptionsFlowSkill(),
+            EarningsSkill(),
+            SocialSkill(),
+        ]
 
     async def start(self):
         """Start the agent loop."""
@@ -59,57 +71,75 @@ class TradingAgent:
         """Main analysis loop."""
         while self.is_running:
             try:
-                await self._analyze_cycle()
+                await self.run_cycle()
             except Exception as e:
                 logger.error(f"Error in agent cycle for {self.symbol}: {e}")
             
             # Wait for 60 seconds
             await asyncio.sleep(60)
 
-    async def _analyze_cycle(self):
-        """Single analysis cycle."""
-        self.status = AgentStatus.ANALYZING
-        logger.info(f"[{self.symbol}] Analysis cycle started...")
+    def _score_to_signal(self, final_score: float) -> str:
+        """Convierte el score (-1.0 a 1.0) a una señal."""
+        if final_score >= 0.5:
+            return "COMPRA FUERTE" if final_score >= 0.8 else "COMPRA"
+        elif final_score <= -0.5:
+            return "VENTA FUERTE" if final_score <= -0.8 else "VENTA"
+        return "MANTENER"
 
-        # 1. Fetch Technical Data (RSI, MACD, etc)
-        # Using existing get_stock_quote and simulated indicators if needed
-        quote = await self.market_data.get_stock_quote(self.symbol)
-        # Assuming we have a way to get indicators (mocking for now if service is pending)
-        indicators = {
-            "rsi": 55, # Fallback
-            "macd": {"histogram": 0.5},
-            "current_price": quote.get("price", 0)
+    async def run_cycle(self) -> dict:
+        self.status = AgentStatus.ANALYZING
+        logger.info(f"[{self.symbol}] Analysis cycle started (Modular Skills)...")
+
+        # Corre todas las skills en paralelo
+        results = await asyncio.gather(*[
+            skill.analyze(self.symbol) 
+            for skill in self.skills
+            if await skill.is_available()
+        ])
+        
+        # Score ponderado final (-1.0 a +1.0)
+        total_weight = sum(s.weight for s in self.skills)
+        if total_weight > 0:
+            final_score = sum(
+                r.score * s.weight 
+                for r, s in zip(results, self.skills)
+            ) / total_weight
+        else:
+            final_score = 0.0
+            
+        signal = self._score_to_signal(final_score)
+        
+        # Log para observabilidad (WebSocket)
+        confidence_pct = int(abs(final_score) * 100)
+        reasoning = " | ".join([f"{r.skill_name}: {r.signal}" for r in results if r.signal != 'NEUTRAL'])
+        if not reasoning:
+            reasoning = "Señales técnicas y sociales en rango neutral."
+            
+        self.last_analysis = {
+            "recommendation": signal,
+            "confidence": confidence_pct
         }
 
-        # 2. Fetch Sentiment Score (Phase 1)
-        sentiment = await self.sentiment_service.get_symbol_sentiment(self.symbol)
-        
-        # 3. Call AIOrchestrator for final verdict
-        # Enriquecemos los datos para el orquestador
-        analysis = await self.ai_orchestrator.analyze_market_context(
-            symbol=self.symbol,
-            price_data={"current_price": quote.get("price", 0)},
-            indicators=indicators,
-            news=[] # Handled internally by AIOrchestrator if needed
-        )
-
-        self.last_analysis = analysis
-        score = analysis.get("confidence", 0)
-        recommendation = analysis.get("recommendation", "HOLD")
-
-        # 4. Emit Signal (Check thresholds > 80 or < 20)
-        if (recommendation == "BUY" and score >= 80) or (recommendation == "SELL" and score <= 20):
+        # Emite si hay señal fuerte
+        if abs(final_score) >= 0.5:
             self.status = AgentStatus.SIGNAL_READY
-            await self._emit_signal(recommendation, score, analysis.get("reasoning"))
+            await self._broadcast_reasoning(signal, confidence_pct, reasoning)
         else:
             self.status = AgentStatus.WATCHING
-
-        # 5. Save Decision to Obsidian
-        self.obsidian.save_analysis(self.symbol, analysis)
         
-        logger.info(f"[{self.symbol}] Cycle completed. Status: {self.status}, Signal: {recommendation} ({score}%)")
+        # Guardar en Obsidian
+        await self._save_memory(results, final_score)
+        
+        logger.info(f"[{self.symbol}] Cycle completed. Signal: {signal} (Score: {final_score:.2f})")
+        
+        return {
+            "symbol": self.symbol,
+            "final_score": final_score,
+            "signal": signal,
+            "skills": [r.__dict__ for r in results]
+        }
 
-    async def _emit_signal(self, signal: str, confidence: int, reason: str):
+    async def _broadcast_reasoning(self, signal: str, confidence: int, reason: str):
         """Emit signal via WebSocket to all connected clients."""
         from app.core.ws_manager import manager
         
@@ -124,6 +154,16 @@ class TradingAgent:
         
         logger.info(f"🚀 BROADCASTING SIGNAL for {self.symbol}: {signal}")
         await manager.broadcast(message)
+
+    async def _save_memory(self, results, final_score: float):
+        """Guarda la memoria del ciclo en Obsidian."""
+        analysis_data = {
+            "final_score": final_score,
+            "signal": self._score_to_signal(final_score),
+            "timestamp": datetime.now().isoformat(),
+            "skills_breakdown": [r.__dict__ for r in results]
+        }
+        self.obsidian.save_analysis(self.symbol, analysis_data)
 
     def get_state(self) -> Dict[str, Any]:
         """Return agent's current state."""
