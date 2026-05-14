@@ -498,6 +498,7 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
               {!inWatchlist && <span className="text-xs font-normal opacity-80 mt-1">To track daily AI Score</span>}
             </button>
           </div>
+          )}
 
           {/* Metrics Table */}
           <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-2xl p-6 shadow-sm">
