@@ -162,7 +162,7 @@ export default function StocksView() {
                       ${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className={`text-xs font-medium ${positive ? 'text-blue-400' : 'text-red-400'}`}>
-                      {positive ? '+' : ''}{Math.abs(pct).toFixed(2)}%
+                      {positive ? '+' : ''}{(Math.abs(pct) || 0).toFixed(2)}%
                     </p>
                   </div>
 

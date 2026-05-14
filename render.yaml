@@ -1,15 +1,58 @@
 services:
+  # 1. Redis para Cache y WebSockets
+  - type: redis
+    name: nuo-redis
+    plan: free # Cambiar a 'standard' en producción real para persistencia
+    ipAllowList: [] # Allow all internal traffic
+
+  # 2. Backend FastAPI
   - type: web
-    name: nuotrading-backend
-    env: python
-    region: ohio
-    plan: free
-    buildCommand: "cd backend && pip install -r requirements.txt"
-    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    name: nuo-backend
+    runtime: python
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health/
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.10.0
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: nuo-redis
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: FINNHUB_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: TWITTER_BEARER_TOKEN
+        sync: false
       - key: ENVIRONMENT
         value: production
-      - key: CORS_ORIGINS
-        value: "https://nuo-trading-frontend.vercel.app,http://localhost:3000"
+
+  # 3. Frontend Next.js
+  - type: web
+    name: nuo-frontend
+    runtime: node
+    buildCommand: cd frontend && npm install && npm run build
+    startCommand: cd frontend && npm start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: nuo-backend
+          property: url
+      - key: NEXT_PUBLIC_WS_URL
+        fromService:
+          type: web
+          name: nuo-backend
+          property: url
+        # Nota: Render usa https, los websockets deben ser wss://
+        # Usualmente NEXT_PUBLIC_WS_URL se construye dinámicamente o se fija aquí

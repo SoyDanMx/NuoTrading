@@ -52,10 +52,14 @@ ta==0.11.0
 openai
 google-generativeai
 anthropic
+groq
 langchain-openai
 langchain-google-genai
 langchain-anthropic
 langchain
+
+# Social Signals
+praw
 
 # Development
 black==24.10.0

@@ -18,9 +18,25 @@ export function useAgentSignals() {
   const [livePrices, setLivePrices] = useState<Record<string, {price: number, change_pct: number}>>({});
 
   useEffect(() => {
-    // Dynamic WS URL based on current window location
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    const socket = new WebSocket(`ws://${host}:8000/api/v1/ws/signals`);
+    if (typeof window === 'undefined') return;
+
+    // Use environment variable if present, otherwise fallback to current host
+    // Replace http/https with ws/wss accordingly
+    let wsUrl = WS_URL;
+    if (!process.env.NEXT_PUBLIC_WS_URL) {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.hostname;
+      // In production (Vercel), we expect the backend to be elsewhere, 
+      // but if not set, we try the same host (though it likely fails if it's Vercel)
+      wsUrl = `${protocol}//${host}${window.location.port ? `:${window.location.port}` : ''}/api/v1/ws/signals`;
+    } else {
+      // Ensure the protocol matches if we are on HTTPS
+      if (window.location.protocol === 'https:' && wsUrl.startsWith('ws:')) {
+        wsUrl = wsUrl.replace('ws:', 'wss:');
+      }
+    }
+
+    const socket = new WebSocket(wsUrl);
 
     socket.onmessage = (event) => {
       try {

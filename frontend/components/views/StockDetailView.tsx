@@ -60,12 +60,12 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
         
         clearTimeout(timeoutId);
 
-        if (analysisRes.status === 'fulfilled') setAnalysis(analysisRes.value);
-        if (sentimentRes.status === 'fulfilled') setSentiment(sentimentRes.value);
-        if (agentRes.status === 'fulfilled') setAgentStatus(agentRes.value);
-        if (memoryRes.status === 'fulfilled') setMemory(memoryRes.value.memories || []);
-        if (accuracyRes.status === 'fulfilled') setAccuracyData(accuracyRes.value);
-        if (predictionsRes.status === 'fulfilled') setRecentPredictions(predictionsRes.value.predictions || []);
+        if (analysisRes.status === 'fulfilled') setAnalysis(analysisRes.value || null);
+        if (sentimentRes.status === 'fulfilled') setSentiment(sentimentRes.value || null);
+        if (agentRes.status === 'fulfilled') setAgentStatus(agentRes.value || null);
+        if (memoryRes.status === 'fulfilled') setMemory(memoryRes.value?.memories || []);
+        if (accuracyRes.status === 'fulfilled') setAccuracyData(accuracyRes.value || null);
+        if (predictionsRes.status === 'fulfilled') setRecentPredictions(predictionsRes.value?.predictions || []);
 
         // Fetch beginner explanation if needed
         if (isBeginnerMode) {
@@ -98,7 +98,9 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
   };
 
   const getSkillScore = (name: string) => {
-    const skill = agentStatus?.analysis?.skills?.find((s: any) => s.skill_name.includes(name) || name.includes(s.skill_name));
+    const skill = agentStatus?.analysis?.skills?.find((s: any) => 
+      s?.skill_name && (s.skill_name.includes(name) || name.includes(s.skill_name))
+    );
     return skill ? mapTo10(skill.score) : 5; // Default 5 (neutral)
   };
 
@@ -166,9 +168,9 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
                 
                 <div className="flex items-baseline gap-3 mb-1">
                   <span className="text-5xl font-bold">${currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  <span className={`text-lg font-semibold flex items-center ${positive ? 'text-green-500' : 'text-red-500'}`}>
-                    {positive ? '+' : ''}{priceChange.toFixed(2)} ({positive ? '+' : ''}{percentChange.toFixed(2)}%)
-                  </span>
+                    <p className={`text-xs font-medium ${positive ? 'text-blue-400' : 'text-red-400'}`}>
+                      {positive ? '+' : ''}{(Math.abs(percentChange) || 0).toFixed(2)}%
+                    </p>
                   <span className="text-sm text-gray-400 font-medium ml-2">NASDAQ</span>
                 </div>
 

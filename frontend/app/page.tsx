@@ -11,6 +11,15 @@ import LandingView from '@/components/views/LandingView';
 
 export default function Home() {
   const { activeTab, selectedSymbol, setSelectedSymbol, hasStarted, setHasStarted } = useAppStore();
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  if (!hasMounted) {
+    return <div className="bg-black min-h-screen" />; // Blank screen during hydration
+  }
 
   if (!hasStarted) {
     return (
