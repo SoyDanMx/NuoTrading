@@ -25,7 +25,7 @@ interface Quote {
 const filters = ['All', 'Companies', 'Startup', 'Personal'];
 
 export default function StocksView() {
-  const { watchlist, setSelectedSymbol } = useAppStore();
+  const { watchlist, setSelectedSymbol, isBeginnerMode } = useAppStore();
   const { lastSignal, livePrices } = useAgentSignals();
   const [activeFilter, setActiveFilter] = useState('All');
   const [watchlistQuotes, setWatchlistQuotes] = useState<Record<string, Quote>>({});
@@ -33,7 +33,6 @@ export default function StocksView() {
   const [loading, setLoading] = useState(true);
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [adjustments, setAdjustments] = useState<any[]>([]);
-  const [expertMode, setExpertMode] = useState(true); // Default to true for this phase
 
   const REFRESH_MS = 60000;
 
@@ -186,7 +185,7 @@ export default function StocksView() {
       </div>
 
       {/* Agent Optimization Panel (Expert Mode) */}
-      {expertMode && (
+      {!isBeginnerMode && (
         <div className="space-y-6 pt-4 border-t border-white/5">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">

@@ -18,7 +18,7 @@ type Timeframe = '1D' | '1W' | '1M' | '1Y' | '5Y' | 'ALL';
 type Tab = 'Overview' | 'Stock Analysis' | 'Precision' | 'Trading Parameters' | 'Buy Track Record' | 'Scores Evolution';
 
 export default function StockDetailView({ symbol }: { symbol: string }) {
-  const { watchlist, addToWatchlist } = useAppStore();
+  const { watchlist, addToWatchlist, isBeginnerMode } = useAppStore();
   const [analysis, setAnalysis] = useState<any>(null);
   const [sentiment, setSentiment] = useState<any>(null);
   const [agentStatus, setAgentStatus] = useState<any>(null);
@@ -102,6 +102,13 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
   const sentimentScore = Math.round((getSkillScore("Sentimiento") + getSkillScore("Opciones") + getSkillScore("Social")) / 3);
   const riskScore = 6; // To be implemented in Fase E
 
+  const getSimplifiedReasoning = () => {
+    if (aiScore >= 8) return "Excelente oportunidad. El agente detecta señales fuertes de crecimiento a corto plazo.";
+    if (aiScore >= 6) return "Buena opción. Los indicadores son mayormente positivos con riesgo moderado.";
+    if (aiScore >= 4) return "Neutral. No hay una dirección clara en este momento. Mejor esperar.";
+    return "Precaución. El agente detecta debilidad técnica y sentimientos negativos.";
+  };
+
 
   if (loading && !quote) {
     return (
@@ -165,7 +172,9 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
 
             {/* Tabs */}
             <div className="flex flex-wrap gap-2 mt-8 border-b border-gray-100 dark:border-white/10 pb-4">
-              {(['Overview', 'Stock Analysis', 'Precision', 'Trading Parameters', 'Buy Track Record', 'Scores Evolution'] as Tab[]).map((tab) => (
+              {(['Overview', 'Stock Analysis', 'Precision', 'Trading Parameters', 'Buy Track Record', 'Scores Evolution'] as Tab[])
+                .filter(tab => !isBeginnerMode || ['Overview', 'Stock Analysis'].includes(tab))
+                .map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -226,7 +235,7 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
                       <h3 className="font-bold text-lg">AI Reasoning</h3>
                     </div>
                     <p className="text-gray-700 dark:text-white/80 leading-relaxed italic">
-                      "{agentStatus?.analysis?.reasoning || analysis?.reasoning || 'El agente está analizando las variables técnicas y fundamentales...'}"
+                      "{isBeginnerMode ? getSimplifiedReasoning() : (agentStatus?.analysis?.reasoning || analysis?.reasoning || 'El agente está analizando las variables técnicas y fundamentales...')}"
                     </p>
                   </div>
 
@@ -396,43 +405,52 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
           <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-2xl p-6 shadow-sm flex flex-col items-center">
             
             <div className="w-full flex justify-between items-start mb-6">
-              <h3 className="font-bold text-gray-900 dark:text-white">AI Score <Info className="inline w-3 h-3 text-gray-400 ml-1 cursor-pointer" /></h3>
-              <a href="#" className="text-xs font-semibold text-blue-500 hover:underline">See AI Analysis</a>
+              <h3 className="font-bold text-gray-900 dark:text-white">
+                {isBeginnerMode ? 'Señal AI' : 'AI Score'} <Info className="inline w-3 h-3 text-gray-400 ml-1 cursor-pointer" />
+              </h3>
+              {!isBeginnerMode && <a href="#" className="text-xs font-semibold text-blue-500 hover:underline">See AI Analysis</a>}
             </div>
 
             <div className="flex w-full items-center justify-between mb-8">
               {/* Circular Gauge */}
               <div className="flex-1 flex justify-center">
-                <CircularGauge score={aiScore} size={130} strokeWidth={12} />
+                <CircularGauge 
+                  score={aiScore} 
+                  size={130} 
+                  strokeWidth={12} 
+                  label={isBeginnerMode ? "Señal" : "Score"}
+                />
               </div>
 
               {/* Sub-scores */}
-              <div className="flex-1 flex flex-col gap-4 pl-4 border-l border-gray-100 dark:border-white/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
-                    {fundamentalScore}
+              {!isBeginnerMode && (
+                <div className="flex-1 flex flex-col gap-4 pl-4 border-l border-gray-100 dark:border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
+                      {fundamentalScore}
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 dark:text-white/70">Fundamental</span>
                   </div>
-                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Fundamental</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
-                    {technicalScore}
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
+                      {technicalScore}
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 dark:text-white/70">Technical</span>
                   </div>
-                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Technical</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
-                    {sentimentScore}
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full border-2 border-green-500 flex items-center justify-center text-xs font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-500/10">
+                      {sentimentScore}
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 dark:text-white/70">Sentiment</span>
                   </div>
-                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Sentiment</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full border-2 border-yellow-500 flex items-center justify-center text-xs font-bold text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-500/10">
-                    {riskScore}
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full border-2 border-yellow-500 flex items-center justify-center text-xs font-bold text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-500/10">
+                      {riskScore}
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 dark:text-white/70">Low Risk</span>
                   </div>
-                  <span className="text-sm font-medium text-gray-600 dark:text-white/70">Low Risk</span>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Action Button */}

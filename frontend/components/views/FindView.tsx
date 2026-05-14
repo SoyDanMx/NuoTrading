@@ -7,7 +7,15 @@ import StockIcon from '../StockIcon';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-const POPULAR: string[] = ['AAPL', 'TSLA', 'NVDA', 'GOOGL', 'META', 'MSFT', 'AMZN', 'NFLX'];
+const SECTORS = {
+  'POPULAR': ['AAPL', 'TSLA', 'NVDA', 'GOOGL', 'META', 'MSFT', 'AMZN', 'NFLX'],
+  'TECH': ['NVDA', 'AMD', 'ARM', 'ASML', 'AVGO', 'SMCI', 'TSM'],
+  'ENERGY': ['XOM', 'CVX', 'SHEL', 'BP', 'TTE', 'SLB', 'COP'],
+  'FINANCE': ['JPM', 'GS', 'MS', 'BAC', 'WFC', 'V', 'MA'],
+  'CRYPTO': ['BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD']
+};
+
+type SectorKey = keyof typeof SECTORS;
 
 export default function FindView() {
   const { setSelectedSymbol, addToWatchlist } = useAppStore();
@@ -19,9 +27,9 @@ export default function FindView() {
     percent_change: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeSector, setActiveSector] = useState<SectorKey>('POPULAR');
 
-  const handleSearch = async () => {
-    const sym = query.trim().toUpperCase();
+  const handleSearchWithSym = async (sym: string) => {
     if (!sym) return;
     setLoading(true);
     setError(null);
@@ -41,6 +49,8 @@ export default function FindView() {
       setLoading(false);
     }
   };
+
+  const handleSearch = () => handleSearchWithSym(query.trim().toUpperCase());
 
   return (
     <div className="px-4 space-y-6 pb-4">
@@ -112,21 +122,43 @@ export default function FindView() {
         </div>
       )}
       <div>
-        <h3 className="text-[10px] font-black uppercase text-white/60 mb-3 border-b border-white/20 pb-1">
-          POPULARES
-        </h3>
-        <div className="flex flex-wrap gap-2 border-2 border-white p-2">
-          {POPULAR.map((sym) => (
+        <div className="flex items-center justify-between mb-4 border-b-2 border-white pb-2">
+          <h3 className="text-[10px] font-black uppercase text-white tracking-widest">
+            CATEGORÍAS
+          </h3>
+        </div>
+        
+        {/* Sector Pills */}
+        <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide">
+          {Object.keys(SECTORS).map((s) => (
+            <button
+              key={s}
+              onClick={() => setActiveSector(s as SectorKey)}
+              className={`px-4 py-2 text-[10px] font-black uppercase tracking-tighter border-2 transition-all ${
+                activeSector === s 
+                ? 'bg-white text-black border-white shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]' 
+                : 'bg-transparent text-white border-white/20 hover:border-white'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-white/5 p-4 border-2 border-dashed border-white/10">
+          {SECTORS[activeSector].map((sym) => (
             <button
               key={sym}
               type="button"
               onClick={() => {
                 setQuery(sym);
                 setResult(null);
+                handleSearchWithSym(sym);
               }}
-              className="bg-white text-black text-xs font-black uppercase px-4 py-2 border-2 border-black hover:bg-black hover:text-white"
+              className="group bg-white text-black text-xs font-black uppercase p-3 border-2 border-black hover:bg-black hover:text-white transition-all flex flex-col items-center gap-2"
             >
-              {sym}
+              <StockIcon symbol={sym} size="sm" />
+              <span>{sym}</span>
             </button>
           ))}
         </div>
