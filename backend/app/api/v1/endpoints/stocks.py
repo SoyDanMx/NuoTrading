@@ -8,6 +8,28 @@ market_service = MarketDataService()
 sentiment_service = SentimentService()
 
 # ... existing endpoints
+from app.services.market_data import MarketDataService
+from app.services.sentiment_service import SentimentService
+
+@router.get("/{symbol}/explanation")
+async def get_stock_explanation(symbol: str, mode: str = "beginner"):
+    """Get AI-generated simple explanation for beginners."""
+    try:
+        # Fetch current data to feed the explanation
+        analysis = await market_service.get_complete_analysis(symbol.upper())
+        indicators = analysis.get("indicators", {})
+        
+        # Determine signal and score (simplified logic)
+        score_raw = analysis.get("recommendation", {}).get("score", 0.0)
+        score_10 = round(((score_raw + 1) / 2) * 9 + 1, 1)
+        signal = analysis.get("recommendation", {}).get("signal", "NEUTRAL")
+        
+        explanation = await sentiment_service.get_beginner_explanation(
+            symbol.upper(), signal, score_10, indicators
+        )
+        return {"symbol": symbol.upper(), "explanation": explanation}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/sentiment/{symbol}")
 async def get_stock_sentiment(symbol: str):

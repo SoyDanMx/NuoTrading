@@ -104,3 +104,21 @@ Debes responder ÚNICAMENTE con un objeto JSON:
             "news_analyzed": 0,
             "updated_at": datetime.now().isoformat()
         }
+
+    async def get_beginner_explanation(self, symbol: str, signal: str, score: float, indicators: Dict) -> str:
+        """Generates a simplified explanation using Claude Haiku."""
+        try:
+            prompt = f"""Eres un asesor financiero amigable. 
+Explica en 2-3 oraciones simples, sin jerga técnica, por qué {symbol} tiene una señal de {signal} (score: {score}/10).
+Considera estos datos técnicos simplificados: {json.dumps(indicators)}.
+Usa lenguaje que entienda alguien sin experiencia. Sé directo y honesto."""
+
+            response = await self.anthropic.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=200,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.content[0].text
+        except Exception as e:
+            logger.error(f"Error generating beginner explanation: {e}")
+            return f"{symbol} muestra señales de {signal} basadas en su comportamiento reciente de mercado."

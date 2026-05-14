@@ -11,6 +11,7 @@ import CandlestickChart from '../CandlestickChart';
 import StockIcon from '../StockIcon';
 import Disclaimer from '../Disclaimer';
 import CircularGauge from '../CircularGauge';
+import SignalBar from '../SignalBar';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -30,6 +31,7 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
   const [error, setError] = useState<string | null>(null);
   const [accuracyData, setAccuracyData] = useState<any>(null);
   const [recentPredictions, setRecentPredictions] = useState<any[]>([]);
+  const [beginnerExplanation, setBeginnerExplanation] = useState<string>('');
 
   const inWatchlist = watchlist.includes(symbol);
 
@@ -64,6 +66,13 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
         if (memoryRes.status === 'fulfilled') setMemory(memoryRes.value.memories || []);
         if (accuracyRes.status === 'fulfilled') setAccuracyData(accuracyRes.value);
         if (predictionsRes.status === 'fulfilled') setRecentPredictions(predictionsRes.value.predictions || []);
+
+        // Fetch beginner explanation if needed
+        if (isBeginnerMode) {
+          fetch(`${API_URL}/api/v1/stocks/${symbol}/explanation`)
+            .then(res => res.json())
+            .then(data => setBeginnerExplanation(data.explanation));
+        }
       } catch (e: any) {
         console.error(e);
       } finally {
@@ -401,8 +410,27 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
         {/* RIGHT COLUMN: AI Score & Metrics */}
         <div className="space-y-6">
           
-          {/* AI Score Card */}
-          <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-2xl p-6 shadow-sm flex flex-col items-center">
+          {/* Signal Bar (Replacing or Complementing Score Card) */}
+          <SignalBar 
+            score={aiScore}
+            signal={agentStatus?.analysis?.final_signal || (aiScore >= 8 ? 'STRONG_BUY' : aiScore >= 6 ? 'BUY' : aiScore <= 3 ? 'SELL' : 'HOLD')}
+            reasoning={isBeginnerMode ? beginnerExplanation : (agentStatus?.analysis?.reasoning || 'Analyzing...')}
+            isBeginnerMode={isBeginnerMode}
+            onAddWatchlist={() => addToWatchlist(symbol)}
+            onSeeAnalysis={() => setActiveTab('Stock Analysis')}
+            indicators={{
+              rsi: analysis?.indicators?.rsi || 50,
+              macd: analysis?.indicators?.macd?.signal || 'Neutral',
+              volume: 45, // Demo value, could be fetched from volume skill
+              sma50: 'ABOVE',
+              sma200: 'ABOVE'
+            }}
+          />
+
+          {/* AI Score Card (Optional/Expert) */}
+          {!isBeginnerMode && (
+            <div className="bg-white dark:bg-[#111] border border-gray-200 dark:border-white/10 rounded-2xl p-6 shadow-sm flex flex-col items-center">
+              {/* ... existing score card ... */}
             
             <div className="w-full flex justify-between items-start mb-6">
               <h3 className="font-bold text-gray-900 dark:text-white">
