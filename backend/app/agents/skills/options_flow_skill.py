@@ -7,7 +7,7 @@ class OptionsFlowSkill(AgentSkill):
         return "Flujo de Opciones"
 
     @property
-    def weight(self) -> float:
+    def default_weight(self) -> float:
         return 0.20
 
     async def analyze(self, symbol: str) -> SkillResult:

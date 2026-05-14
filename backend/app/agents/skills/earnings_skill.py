@@ -27,7 +27,7 @@ class EarningsSkill(AgentSkill):
         return "Monitor de Earnings"
 
     @property
-    def weight(self) -> float:
+    def default_weight(self) -> float:
         return 0.15
 
     async def analyze(self, symbol: str) -> SkillResult:

@@ -10,7 +10,7 @@ class SentimentSkill(AgentSkill):
         return "Sentimiento Social"
 
     @property
-    def weight(self) -> float:
+    def default_weight(self) -> float:
         return 0.25
 
     async def analyze(self, symbol: str) -> SkillResult:

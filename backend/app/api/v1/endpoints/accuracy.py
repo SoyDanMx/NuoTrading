@@ -27,3 +27,31 @@ async def force_evaluation():
         return {"message": "Evaluation process triggered successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/adjust")
+async def trigger_adjustment(force: bool = Query(False)):
+    """Manually trigger the weight rebalancing logic."""
+    result = await accuracy_engine.auto_adjust_weights(force=force)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@router.get("/adjustments")
+async def list_adjustments(limit: int = Query(10)):
+    """List historical weight adjustments."""
+    from sqlalchemy import text
+    query = text("SELECT * FROM weight_adjustments ORDER BY adjusted_at DESC LIMIT :limit")
+    try:
+        with accuracy_engine.db.connect() as conn:
+            results = conn.execute(query, {"limit": limit}).fetchall()
+            return [dict(row._mapping) for row in results]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/rollback/{adjustment_id}")
+async def rollback_adjustment(adjustment_id: str):
+    """Revert to a previous weight state."""
+    result = await accuracy_engine.rollback_adjustment(adjustment_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result

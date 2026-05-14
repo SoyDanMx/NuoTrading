@@ -22,7 +22,7 @@ class SocialSkill(AgentSkill):
         return "Señales Sociales (X/Reddit)"
 
     @property
-    def weight(self) -> float:
+    def default_weight(self) -> float:
         return 0.10
 
     async def is_available(self) -> bool:

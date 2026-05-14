@@ -10,7 +10,7 @@ class TechnicalSkill(AgentSkill):
         return "Análisis Técnico"
 
     @property
-    def weight(self) -> float:
+    def default_weight(self) -> float:
         return 0.30
 
     async def analyze(self, symbol: str) -> SkillResult:

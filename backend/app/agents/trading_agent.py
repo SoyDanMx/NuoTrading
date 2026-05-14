@@ -93,6 +93,16 @@ class TradingAgent:
         self.status = AgentStatus.ANALYZING
         logger.info(f"[{self.symbol}] Analysis cycle started (Modular Skills)...")
 
+        # Actualiza pesos dinámicos desde el AccuracyEngine
+        try:
+            current_weights = await self.accuracy.get_current_weights()
+            if current_weights:
+                for skill in self.skills:
+                    if skill.name in current_weights:
+                        skill.set_dynamic_weight(current_weights[skill.name])
+        except Exception as e:
+            logger.error(f"Error updating dynamic weights for {self.symbol}: {e}")
+
         # Corre todas las skills en paralelo
         results = await asyncio.gather(*[
             skill.analyze(self.symbol) 

@@ -5,7 +5,7 @@ import { useAppStore } from '@/store/app-store';
 import { getCompanyName } from '@/lib/constants';
 import MiniSparkline from '../MiniSparkline';
 import StockIcon from '../StockIcon';
-import { ChevronRight, Plus, Sparkles, ArrowRight } from 'lucide-react';
+import { ChevronRight, Plus, Sparkles, ArrowRight, Settings2, RotateCcw, Zap } from 'lucide-react';
 import { useAgentSignals } from '@/hooks/useAgentSignals';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -31,6 +31,9 @@ export default function StocksView() {
   const [watchlistQuotes, setWatchlistQuotes] = useState<Record<string, Quote>>({});
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [loading, setLoading] = useState(true);
+  const [weights, setWeights] = useState<Record<string, number>>({});
+  const [adjustments, setAdjustments] = useState<any[]>([]);
+  const [expertMode, setExpertMode] = useState(true); // Default to true for this phase
 
   const REFRESH_MS = 60000;
 
@@ -65,6 +68,26 @@ export default function StocksView() {
       );
       setWatchlistQuotes(quotes);
       setSparklines(spark);
+      
+      // Fetch optimization data
+      try {
+        const [wRes, aRes] = await Promise.all([
+          fetch(`${API_URL}/api/v1/accuracy/report`),
+          fetch(`${API_URL}/api/v1/accuracy/adjustments?limit=5`)
+        ]);
+        if (wRes.ok) {
+          const report = await wRes.json();
+          const wMap: Record<string, number> = {};
+          Object.entries(report.by_skill).forEach(([name, data]: [string, any]) => {
+             wMap[name] = data.current_weight || (1 / Object.keys(report.by_skill).length);
+          });
+          setWeights(wMap);
+        }
+        if (aRes.ok) setAdjustments(await aRes.json());
+      } catch (e) {
+        console.error("Error optimization data:", e);
+      }
+
       setLoading(false);
     }
     fetchWatchlist();
@@ -161,6 +184,88 @@ export default function StocksView() {
           </button>
         </div>
       </div>
+
+      {/* Agent Optimization Panel (Expert Mode) */}
+      {expertMode && (
+        <div className="space-y-6 pt-4 border-t border-white/5">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+               <Settings2 className="w-5 h-5 text-blue-400" />
+               <h3 className="text-xl font-medium text-white/90">Optimización del Agente</h3>
+            </div>
+            <button 
+              onClick={async () => {
+                const res = await fetch(`${API_URL}/api/v1/accuracy/adjust?force=true`, { method: 'POST' });
+                if (res.ok) window.location.reload();
+              }}
+              className="flex items-center gap-2 text-xs font-bold uppercase tracking-tighter bg-blue-500/10 text-blue-400 px-4 py-2 rounded-full border border-blue-500/20 hover:bg-blue-500/20 transition-all"
+            >
+              <Zap className="w-3 h-3" /> Forzar Rebalanceo
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+             {/* Weight Distribution */}
+             <div className="glass p-6 space-y-4">
+                <p className="text-xs font-bold text-white/30 uppercase tracking-widest">Distribución de Pesos Actual</p>
+                <div className="space-y-4">
+                   {Object.entries(weights).sort((a,b) => b[1] - a[1]).map(([name, weight], i) => (
+                     <div key={i} className="space-y-1.5">
+                        <div className="flex justify-between text-xs font-medium">
+                           <span className="text-white/60">{name}</span>
+                           <span className="text-blue-400">{(weight * 100).toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+                           <div 
+                             className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-1000"
+                             style={{ width: `${weight * 100}%` }}
+                           />
+                        </div>
+                     </div>
+                   ))}
+                </div>
+             </div>
+
+             {/* Adjustment Timeline */}
+             <div className="glass p-6 space-y-4">
+                <p className="text-xs font-bold text-white/30 uppercase tracking-widest">Historial de Ajustes</p>
+                <div className="space-y-3">
+                   {adjustments.length > 0 ? adjustments.map((adj, i) => (
+                     <div key={i} className="flex gap-4 p-3 rounded-xl bg-white/5 border border-white/5 group">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+                           <RotateCcw className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 space-y-0.5">
+                           <div className="flex justify-between items-center">
+                              <span className="text-[10px] font-bold text-white/40">{new Date(adj.adjusted_at).toLocaleDateString()}</span>
+                              <button 
+                                onClick={async () => {
+                                  await fetch(`${API_URL}/api/v1/accuracy/rollback/${adj.id}`, { method: 'POST' });
+                                  window.location.reload();
+                                }}
+                                className="text-[9px] font-bold text-blue-400 opacity-0 group-hover:opacity-100 uppercase tracking-tighter hover:underline transition-opacity"
+                              >
+                                Rollback
+                              </button>
+                           </div>
+                           <p className="text-xs font-medium text-white/80">{adj.reason}</p>
+                           <p className="text-[10px] text-white/30 truncate">
+                              Weights: {Object.keys(adj.weights_after).length} skills rebalanced
+                           </p>
+                        </div>
+                     </div>
+                   )) : (
+                     <div className="h-full flex items-center justify-center py-8">
+                        <p className="text-xs text-white/20 italic text-center">
+                           Esperando suficientes datos para iniciar el primer ciclo de auto-optimización.
+                        </p>
+                     </div>
+                   )}
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Agent Signal Banner */}
       {lastSignal && (

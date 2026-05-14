@@ -233,3 +233,126 @@ class AccuracyEngine:
         except Exception as e:
             logger.error(f"Error fetching latest predictions: {e}")
             return []
+
+    async def get_current_weights(self) -> Dict[str, float]:
+        """Fetches the active weights for all skills from the DB."""
+        query = text("SELECT skill_name, current_weight FROM skill_accuracy")
+        try:
+            with self.db.connect() as conn:
+                results = conn.execute(query).fetchall()
+                return {row.skill_name: row.current_weight for row in results}
+        except Exception as e:
+            logger.error(f"Error fetching weights: {e}")
+            return {}
+
+    async def auto_adjust_weights(self, force: bool = False) -> Dict:
+        """
+        Self-optimization engine: rebalances skill weights based on their accuracy.
+        Safety checks: min 30 predictions, max 3% change, maintains 0.05 min weight.
+        """
+        report = await self.get_accuracy_report()
+        if not force and report.get("total_predictions", 0) < 30:
+            return {"error": "Not enough data for auto-adjustment (min 30 predictions)."}
+            
+        overall_acc = report.get("overall_accuracy", 0.0)
+        if overall_acc < 0.50 and not force:
+            return {"error": "Overall accuracy too low (<50%) to trust rebalancing."}
+
+        current_weights = await self.get_current_weights()
+        if not current_weights:
+            return {"error": "No skills found in database."}
+
+        new_weights = {}
+        changes = []
+        
+        # 1. Calculate new raw weights based on performance ratio
+        for skill_name, data in report.get("by_skill", {}).items():
+            acc = data["accuracy"]
+            # Performance ratio: how much better/worse is this skill than average
+            perf_ratio = acc / max(overall_acc, 0.1)
+            
+            # Gradual adjustment: max ±0.03 per cycle
+            current_w = current_weights.get(skill_name, 0.1)
+            target_w = current_w * perf_ratio
+            
+            # Clamp change to ±0.03
+            adjustment = max(-0.03, min(0.03, target_w - current_w))
+            
+            # Clamp total weight to [0.05, 0.45] range
+            final_w = max(0.05, min(0.45, current_w + adjustment))
+            
+            new_weights[skill_name] = final_w
+            if abs(adjustment) > 0.001:
+                changes.append({
+                    "skill": skill_name,
+                    "from": round(current_w, 3),
+                    "to": round(final_w, 3),
+                    "reason": f"Accuracy {int(acc*100)}% vs Avg {int(overall_acc*100)}%"
+                })
+
+        # 2. Normalize to exactly 1.00
+        total_new_w = sum(new_weights.values())
+        if total_new_w > 0:
+            new_weights = {k: round(v / total_new_w, 4) for k, v in new_weights.items()}
+
+        # 3. Save to database
+        try:
+            with self.db.connect() as conn:
+                # Record the adjustment event
+                log_query = text("""
+                    INSERT INTO weight_adjustments (reason, weights_before, weights_after, accuracy_snapshot)
+                    VALUES (:reason, :before, :after, :snap)
+                """)
+                conn.execute(log_query, {
+                    "reason": "Auto-optimization cycle" if not force else "Manual force adjust",
+                    "before": json.dumps(current_weights),
+                    "after": json.dumps(new_weights),
+                    "snap": json.dumps(report)
+                })
+                
+                # Update individual skill weights
+                for name, weight in new_weights.items():
+                    update_q = text("UPDATE skill_accuracy SET current_weight = :w WHERE skill_name = :n")
+                    conn.execute(update_q, {"w": weight, "n": name})
+                
+                conn.commit()
+                
+            # 4. Notify via WebSocket
+            await self._broadcast_adjustment(changes)
+            
+            return {"status": "success", "changes": changes, "new_weights": new_weights}
+        except Exception as e:
+            logger.error(f"Error saving auto-adjustment: {e}")
+            return {"error": str(e)}
+
+    async def _broadcast_adjustment(self, changes: List[Dict]):
+        """Notifies the frontend about weight rebalancing."""
+        from app.core.ws_manager import manager
+        if not changes: return
+        
+        await manager.broadcast({
+            "type": "WEIGHT_ADJUSTED",
+            "changes": changes,
+            "timestamp": datetime.now().isoformat()
+        })
+
+    async def rollback_adjustment(self, adjustment_id: str) -> Dict:
+        """Reverts skill weights to a previous state."""
+        try:
+            with self.db.connect() as conn:
+                # Get the adjustment record
+                q = text("SELECT weights_before FROM weight_adjustments WHERE id = :id")
+                result = conn.execute(q, {"id": adjustment_id}).fetchone()
+                if not result:
+                    return {"error": "Adjustment ID not found."}
+                
+                weights = json.loads(result.weights_before)
+                for name, weight in weights.items():
+                    update_q = text("UPDATE skill_accuracy SET current_weight = :w WHERE skill_name = :n")
+                    conn.execute(update_q, {"w": weight, "n": name})
+                
+                conn.commit()
+                return {"status": "success", "restored_weights": weights}
+        except Exception as e:
+            logger.error(f"Rollback failed: {e}")
+            return {"error": str(e)}

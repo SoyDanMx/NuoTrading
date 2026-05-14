@@ -21,8 +21,20 @@ class AgentSkill(ABC):
     
     @property
     @abstractmethod
-    def weight(self) -> float:
+    def default_weight(self) -> float:
+        """The initial weight assigned to this skill."""
         pass
+
+    @property
+    def default_weight(self) -> float:
+        """
+        The active weight. In production, this can be overridden 
+        by the AccuracyEngine based on historical performance.
+        """
+        return getattr(self, "_dynamic_weight", self.default_weight)
+
+    def set_dynamic_weight(self, value: float):
+        self._dynamic_weight = value
     
     @abstractmethod
     async def analyze(self, symbol: str) -> SkillResult:
