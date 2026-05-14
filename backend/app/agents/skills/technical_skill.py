@@ -1,9 +1,9 @@
 from app.agents.skills.base import AgentSkill, SkillResult
-from app.services.market_data import MarketDataService
 
 class TechnicalSkill(AgentSkill):
+    """Weight=0.30 — RSI, MACD, Fibonacci, Support/Resistance."""
     def __init__(self):
-        self.market_data = MarketDataService()
+        self._market_data = None  # lazy to avoid circular import
 
     @property
     def name(self) -> str:
@@ -15,7 +15,11 @@ class TechnicalSkill(AgentSkill):
 
     async def analyze(self, symbol: str) -> SkillResult:
         try:
-            indicators = await self.market_data.get_technical_indicators(symbol)
+            # Lazy import — avoids circular: MarketDataService → AIOrchestrator → skills → MarketDataService
+            if self._market_data is None:
+                from app.services.market_data import MarketDataService
+                self._market_data = MarketDataService()
+            indicators = await self._market_data.get_technical_indicators(symbol)
             
             # Map existing logic to -1.0 to 1.0 score
             score = 0.0

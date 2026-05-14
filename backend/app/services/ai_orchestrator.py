@@ -47,8 +47,9 @@ class AIOrchestrator:
         self.provider = settings.AI_PROVIDER.lower()
         self.obsidian = ObsidianService()
 
-        # Dynamic skill loading – add new skills in _load_skills()
-        self.skills: List[AgentSkill] = _load_skills()
+        # Skills are loaded lazily on first analyze_with_skills() call
+        # to avoid the circular: MarketDataService → AIOrchestrator → TechnicalSkill → MarketDataService
+        self._skills: List[AgentSkill] = []
 
         # LLM Clients
         self.openai_client = None
@@ -81,8 +82,11 @@ class AIOrchestrator:
         Execute all available skills in parallel, compute weighted score,
         then ask the LLM for the executive reasoning.
         """
+        # Lazy load skills on first call (avoids circular deps at import time)
+        if not self._skills:
+            self._skills = _load_skills()
         # 1. Run skills in parallel, skip unavailable ones
-        available_skills = [s for s in self.skills if await s.is_available()]
+        available_skills = [s for s in self._skills if await s.is_available()]
         results: List[SkillResult] = await asyncio.gather(
             *[skill.analyze(symbol) for skill in available_skills]
         )
