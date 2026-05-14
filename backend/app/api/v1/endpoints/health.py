@@ -15,13 +15,25 @@ async def health_check():
     # 1. Check Supabase (Database)
     supabase_status = "disconnected"
     try:
-        engine = sqlalchemy.create_engine(settings.DATABASE_URL)
+        # Check if URL needs SSL (common in Render/Supabase)
+        db_url = settings.DATABASE_URL
+        if "supabase.co" in db_url and "sslmode" not in db_url:
+            separator = "&" if "?" in db_url else "?"
+            db_url += f"{separator}sslmode=require"
+            
+        engine = sqlalchemy.create_engine(
+            db_url,
+            connect_args={"connect_timeout": 5}
+        )
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
             supabase_status = "connected"
     except Exception as e:
-        print(f"DEBUG: Supabase Connection Error: {str(e)}")
-        supabase_status = "error"
+        error_msg = str(e)
+        # Obfuscate credentials for safety in logs
+        safe_url = settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else "unknown"
+        print(f"CRITICAL: Supabase Connection Error to {safe_url}: {error_msg}")
+        supabase_status = f"error: {error_msg[:50]}..."
 
     # 2. Check Agents
     agents_running = 0
