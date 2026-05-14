@@ -6,6 +6,7 @@ from app.services.market_data import MarketDataService
 from app.services.sentiment_service import SentimentService
 from app.services.ai_orchestrator import AIOrchestrator
 from app.services.obsidian_service import ObsidianService
+from app.services.accuracy_engine import AccuracyEngine
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +29,10 @@ class TradingAgent:
         self.task = None
         
         self.obsidian = ObsidianService()
+        self.accuracy = AccuracyEngine()
         self.skills: list[AgentSkill] = self._load_skills()
         self.last_analysis = {}
+        self.market_data = MarketDataService()
 
     def _load_skills(self) -> list[AgentSkill]:
         """Carga todas las skills disponibles dinámicamente"""
@@ -116,8 +119,13 @@ class TradingAgent:
             reasoning = "Señales técnicas y sociales en rango neutral."
             
         self.last_analysis = {
-            "recommendation": signal,
-            "confidence": confidence_pct
+            "symbol": self.symbol,
+            "final_score": final_score,
+            "signal": signal,
+            "confidence": confidence_pct,
+            "skills": [r.__dict__ for r in results],
+            "reasoning": reasoning,
+            "updated_at": datetime.now().isoformat()
         }
 
         # Emite si hay señal fuerte
@@ -130,14 +138,24 @@ class TradingAgent:
         # Guardar en Obsidian
         await self._save_memory(results, final_score)
         
+        # Registrar en el Accuracy Engine
+        try:
+            current_price = await self.market_data.get_current_price(self.symbol)
+            if current_price:
+                await self.accuracy.record_prediction(
+                    symbol=self.symbol,
+                    signal=signal,
+                    confidence=float(confidence_pct),
+                    price=float(current_price),
+                    final_score=float(final_score),
+                    skills_breakdown={r.skill_name: float(r.score) for r in results}
+                )
+        except Exception as e:
+            logger.error(f"Failed to record prediction for {self.symbol}: {e}")
+            
         logger.info(f"[{self.symbol}] Cycle completed. Signal: {signal} (Score: {final_score:.2f})")
         
-        return {
-            "symbol": self.symbol,
-            "final_score": final_score,
-            "signal": signal,
-            "skills": [r.__dict__ for r in results]
-        }
+        return self.last_analysis
 
     async def _broadcast_reasoning(self, signal: str, confidence: int, reason: str):
         """Emit signal via WebSocket to all connected clients."""
@@ -171,7 +189,6 @@ class TradingAgent:
             "symbol": self.symbol,
             "status": self.status,
             "is_running": self.is_running,
-            "last_decision": self.last_analysis.get("recommendation", "N/A"),
-            "confidence": self.last_analysis.get("confidence", 0),
+            "analysis": self.last_analysis,
             "updated_at": datetime.now().isoformat()
         }

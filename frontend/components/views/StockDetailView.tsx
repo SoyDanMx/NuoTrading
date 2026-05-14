@@ -15,7 +15,7 @@ import CircularGauge from '../CircularGauge';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 type Timeframe = '1D' | '1W' | '1M' | '1Y' | '5Y' | 'ALL';
-type Tab = 'Overview' | 'Stock Analysis' | 'Trading Parameters' | 'Buy Track Record' | 'Scores Evolution';
+type Tab = 'Overview' | 'Stock Analysis' | 'Precision' | 'Trading Parameters' | 'Buy Track Record' | 'Scores Evolution';
 
 export default function StockDetailView({ symbol }: { symbol: string }) {
   const { watchlist, addToWatchlist } = useAppStore();
@@ -28,6 +28,8 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
   const [activeTab, setActiveTab] = useState<Tab>('Overview');
   const [chartType, setChartType] = useState<'line' | 'candlestick'>('line');
   const [error, setError] = useState<string | null>(null);
+  const [accuracyData, setAccuracyData] = useState<any>(null);
+  const [recentPredictions, setRecentPredictions] = useState<any[]>([]);
 
   const inWatchlist = watchlist.includes(symbol);
 
@@ -45,11 +47,13 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
             return res.json();
           });
 
-        const [analysisRes, sentimentRes, agentRes, memoryRes] = await Promise.allSettled([
+        const [analysisRes, sentimentRes, agentRes, memoryRes, accuracyRes, predictionsRes] = await Promise.allSettled([
           fetchWithTimeout(`${API_URL}/api/v1/stocks/analysis/${symbol}`),
           fetchWithTimeout(`${API_URL}/api/v1/stocks/sentiment/${symbol}`),
           fetchWithTimeout(`${API_URL}/api/v1/agents/${symbol}`),
-          fetchWithTimeout(`${API_URL}/api/v1/memory/${symbol}`)
+          fetchWithTimeout(`${API_URL}/api/v1/memory/${symbol}`),
+          fetchWithTimeout(`${API_URL}/api/v1/accuracy/report?symbol=${symbol}`),
+          fetchWithTimeout(`${API_URL}/api/v1/accuracy/predictions/${symbol}`)
         ]);
         
         clearTimeout(timeoutId);
@@ -58,6 +62,8 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
         if (sentimentRes.status === 'fulfilled') setSentiment(sentimentRes.value);
         if (agentRes.status === 'fulfilled') setAgentStatus(agentRes.value);
         if (memoryRes.status === 'fulfilled') setMemory(memoryRes.value.memories || []);
+        if (accuracyRes.status === 'fulfilled') setAccuracyData(accuracyRes.value);
+        if (predictionsRes.status === 'fulfilled') setRecentPredictions(predictionsRes.value.predictions || []);
       } catch (e: any) {
         console.error(e);
       } finally {
@@ -75,12 +81,27 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
   const priceChange = quote?.change ?? 0;
   const positive = percentChange >= 0;
 
-  // Derive Scores (1-10)
-  const aiScore = agentStatus?.confidence ? Math.round(agentStatus.confidence / 10) : 7;
-  const fundamentalScore = 7; // Placeholder
-  const technicalScore = analysis?.indicators?.rsi ? (analysis.indicators.rsi > 50 ? 8 : 4) : 6;
-  const sentimentScore = sentiment?.sentiment_score ? Math.round(sentiment.sentiment_score * 10) : 7;
-  const riskScore = 6; // Placeholder
+  // --- Danelfin-style Score Mapping (-1.0 to 1.0) -> (1 to 10) ---
+  const mapTo10 = (score: number) => {
+    // Map -1.0 to 1, 0.0 to 5.5 (neutral/mid), 1.0 to 10
+    // formula: ((score + 1) / 2) * 9 + 1
+    return Math.round(((score + 1) / 2) * 9 + 1);
+  };
+
+  const getSkillScore = (name: string) => {
+    const skill = agentStatus?.analysis?.skills?.find((s: any) => s.skill_name.includes(name) || name.includes(s.skill_name));
+    return skill ? mapTo10(skill.score) : 5; // Default 5 (neutral)
+  };
+
+  const aiScore = agentStatus?.analysis?.final_score !== undefined 
+    ? mapTo10(agentStatus.analysis.final_score) 
+    : 5;
+
+  const fundamentalScore = getSkillScore("Earnings");
+  const technicalScore = getSkillScore("Técnico");
+  const sentimentScore = Math.round((getSkillScore("Sentimiento") + getSkillScore("Opciones") + getSkillScore("Social")) / 3);
+  const riskScore = 6; // To be implemented in Fase E
+
 
   if (loading && !quote) {
     return (
@@ -144,7 +165,7 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
 
             {/* Tabs */}
             <div className="flex flex-wrap gap-2 mt-8 border-b border-gray-100 dark:border-white/10 pb-4">
-              {(['Overview', 'Stock Analysis', 'Trading Parameters', 'Buy Track Record', 'Scores Evolution'] as Tab[]).map((tab) => (
+              {(['Overview', 'Stock Analysis', 'Precision', 'Trading Parameters', 'Buy Track Record', 'Scores Evolution'] as Tab[]).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -205,8 +226,35 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
                       <h3 className="font-bold text-lg">AI Reasoning</h3>
                     </div>
                     <p className="text-gray-700 dark:text-white/80 leading-relaxed italic">
-                      "{analysis?.reasoning || 'El agente está analizando las variables técnicas y fundamentales...'}"
+                      "{agentStatus?.analysis?.reasoning || analysis?.reasoning || 'El agente está analizando las variables técnicas y fundamentales...'}"
                     </p>
+                  </div>
+
+                  {/* Skill Breakdown (Danelfin Style) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {agentStatus?.analysis?.skills?.map((skill: any, i: number) => (
+                      <div key={i} className="p-4 bg-white dark:bg-[#111] border border-gray-100 dark:border-white/10 rounded-xl shadow-sm">
+                        <div className="flex justify-between items-center mb-2">
+                          <h4 className="font-bold text-sm text-gray-700 dark:text-white/80">{skill.skill_name}</h4>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded ${
+                            skill.score > 0.2 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                            skill.score < -0.2 ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                            'bg-gray-100 text-gray-600 dark:bg-white/5 dark:text-white/40'
+                          }`}>
+                            {skill.signal}
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-100 dark:bg-white/5 h-1.5 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all duration-1000 ${
+                              skill.score > 0 ? 'bg-green-500' : skill.score < 0 ? 'bg-red-500' : 'bg-gray-400'
+                            }`}
+                            style={{ width: `${Math.abs(skill.score) * 100}%`, marginLeft: skill.score < 0 ? '0' : '0' }}
+                          />
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-2 line-clamp-1">{skill.reasoning}</p>
+                      </div>
+                    ))}
                   </div>
 
                   {/* Market Memory */}
@@ -230,6 +278,104 @@ export default function StockDetailView({ symbol }: { symbol: string }) {
                       ) : (
                         <p className="text-sm text-gray-400">No historical memory found.</p>
                       )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'Precision' && (
+                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Accuracy Overview */}
+                    <div className="bg-gray-50 dark:bg-white/5 rounded-2xl p-6 border border-gray-100 dark:border-white/10">
+                       <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-6">Overall Accuracy</h3>
+                       <div className="flex items-center gap-8">
+                         <CircularGauge score={(accuracyData?.overall_accuracy || 0.5) * 10} label="Accuracy" size={120} />
+                         <div className="space-y-4 flex-1">
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-500 text-sm">Total Predicciones</span>
+                              <span className="font-bold">{accuracyData?.total_predictions || 0}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-500 text-sm">Promedio Movimiento 24h</span>
+                              <span className="font-bold text-blue-500">{(accuracyData?.avg_24h_move * 100 || 0).toFixed(2)}%</span>
+                            </div>
+                            <div className="pt-4 border-t border-gray-200 dark:border-white/10">
+                              <p className="text-[10px] text-gray-400 leading-tight">
+                                Las predicciones se evalúan comparando el precio de cierre 24 horas después de emitida la señal.
+                              </p>
+                            </div>
+                         </div>
+                       </div>
+                    </div>
+
+                    {/* Skill Accuracy */}
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-2">Accuracy por Skill</h3>
+                      {accuracyData?.by_skill && Object.entries(accuracyData.by_skill).map(([name, data]: [string, any], i) => (
+                        <div key={i} className="flex items-center justify-between p-3 bg-white dark:bg-[#111] rounded-xl border border-gray-100 dark:border-white/10">
+                           <span className="text-sm font-medium text-gray-600 dark:text-white/70">{name}</span>
+                           <div className="flex items-center gap-3">
+                              <span className="text-xs font-bold text-blue-500">{Math.round(data.accuracy * 100)}%</span>
+                              <div className="w-24 h-1.5 bg-gray-100 dark:bg-white/5 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500" style={{ width: `${data.accuracy * 100}%` }} />
+                              </div>
+                           </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Prediction History */}
+                  <div className="bg-white dark:bg-transparent rounded-2xl">
+                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Historial de Predicciones</h3>
+                     <div className="overflow-hidden rounded-xl border border-gray-100 dark:border-white/10">
+                        <table className="w-full text-left text-sm">
+                           <thead className="bg-gray-50 dark:bg-white/5 text-gray-500 font-bold">
+                              <tr>
+                                 <th className="px-4 py-3">Fecha</th>
+                                 <th className="px-4 py-3">Señal</th>
+                                 <th className="px-4 py-3">Precio Orig.</th>
+                                 <th className="px-4 py-3">Cambio 24h</th>
+                                 <th className="px-4 py-3">Resultado</th>
+                              </tr>
+                           </thead>
+                           <tbody className="divide-y divide-gray-100 dark:divide-white/10">
+                              {recentPredictions && recentPredictions.length > 0 ? recentPredictions.map((pred, i) => (
+                                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                                   <td className="px-4 py-3 text-gray-400 font-medium">
+                                     {new Date(pred.date).toLocaleDateString()}
+                                   </td>
+                                   <td className="px-4 py-3">
+                                     <span className={`font-bold ${pred.signal.includes('COMPRA') ? 'text-green-500' : pred.signal.includes('VENTA') ? 'text-red-500' : 'text-gray-500'}`}>
+                                       {pred.signal}
+                                     </span>
+                                   </td>
+                                   <td className="px-4 py-3 font-mono">${pred.price.toFixed(2)}</td>
+                                   <td className="px-4 py-3 font-bold">
+                                     {pred.change_pct > 0 ? '+' : ''}{pred.change_pct}%
+                                   </td>
+                                   <td className="px-4 py-3">
+                                     {pred.was_correct ? (
+                                       <span className="flex items-center gap-1 text-green-500 font-bold">
+                                         <CheckCircle2 className="w-4 h-4" /> Correcto
+                                       </span>
+                                     ) : (
+                                       <span className="flex items-center gap-1 text-red-500 font-bold opacity-60">
+                                         ❌ Incorrecto
+                                       </span>
+                                     )}
+                                   </td>
+                                </tr>
+                              )) : (
+                                <tr>
+                                  <td colSpan={5} className="px-4 py-12 text-center text-gray-400 italic">
+                                    No hay predicciones evaluadas aún. El sistema evalúa señales automáticamente después de 24 horas.
+                                  </td>
+                                </tr>
+                              )}
+                           </tbody>
+                        </table>
+                     </div>
                   </div>
                 </div>
               )}
