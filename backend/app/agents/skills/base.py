@@ -26,7 +26,7 @@ class AgentSkill(ABC):
         pass
 
     @property
-    def default_weight(self) -> float:
+    def weight(self) -> float:
         """
         The active weight. In production, this can be overridden 
         by the AccuracyEngine based on historical performance.

@@ -77,6 +77,72 @@ async def get_complete_analysis(symbol: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 from app.services.yfinance_service import yfinance_service
+@router.get("/filter")
+async def filter_stocks(
+    volume: str = "any",
+    momentum: str = "any",
+    signal: str = "any",
+    market: str = "any"
+):
+    """
+    Filter stocks based on technical and AI criteria.
+    volume: any, high
+    momentum: any, bullish, bearish, neutral
+    signal: any, strong_buy, strong_sell
+    market: any, usa, mx, eu
+    """
+    # Universos base por mercado
+    markets = {
+        "usa": ["AAPL", "TSLA", "NVDA", "GOOGL", "MSFT", "AMZN", "META", "NFLX", "AMD", "COIN"],
+        "mx": ["AMXL.MX", "WALMEX.MX", "FEMSAUBD.MX", "GFNORTEO.MX", "GMEXICOB.MX"],
+        "eu": ["ASML", "SAP", "MC.PA", "OR.PA", "NESN.SW"]
+    }
+    
+    symbols = markets.get(market.lower(), markets["usa"] + markets["mx"])
+    filtered_results = []
+    
+    for symbol in symbols:
+        try:
+            # Obtenemos indicadores básicos
+            indicators = await market_service.get_technical_indicators(symbol)
+            quote = await market_service.get_stock_quote(symbol)
+            
+            # Determinamos señal IA básica para filtrar
+            rsi = indicators.get("rsi", 50)
+            is_strong_buy = rsi < 35 and indicators["volume"]["ratio"] > 1.2
+            is_strong_sell = rsi > 65 and indicators["volume"]["ratio"] > 1.2
+            
+            # Aplicar filtros
+            match = True
+            
+            if volume == "high" and indicators["volume"]["ratio"] < 1.5:
+                match = False
+            
+            if momentum == "bullish" and rsi <= 60:
+                match = False
+            elif momentum == "bearish" and rsi >= 40:
+                match = False
+            elif momentum == "neutral" and (rsi < 40 or rsi > 60):
+                match = False
+                
+            if signal == "strong_buy" and not is_strong_buy:
+                match = False
+            elif signal == "strong_sell" and not is_strong_sell:
+                match = False
+            
+            if match:
+                filtered_results.append({
+                    "symbol": symbol,
+                    "price": quote.get("current_price", 0.0),
+                    "change_pct": quote.get("percent_change", 0.0),
+                    "rsi": rsi,
+                    "volume_ratio": indicators["volume"]["ratio"],
+                    "ai_signal": "STRONG_BUY" if is_strong_buy else "STRONG_SELL" if is_strong_sell else "HOLD"
+                })
+        except Exception:
+            continue
+            
+    return filtered_results
 
 @router.get("/fundamentals/{symbol}")
 async def get_stock_fundamentals(symbol: str):

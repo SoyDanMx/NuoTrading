@@ -52,13 +52,39 @@ async def get_symbols():
         "message": "Symbol list from exchange pending"
     }
 
-
-@router.get("/finnhub-test")
-async def finnhub_test(symbol: str = "AAPL"):
-    """Diagnostic: returns quote and whether it came from Finnhub (real) or fallback (simulated)."""
-    quote = await market_service.get_stock_quote(symbol.upper())
-    return {
-        "symbol": symbol.upper(),
-        "real_data": not quote.get("is_simulated", False),
-        "quote": quote,
+@router.get("/category/{category}")
+async def get_market_category(category: str):
+    """
+    Get price and performance data for a specific asset category.
+    Categories: indices, etfs, crypto, forex, commodities, bonds, mx
+    """
+    universes = {
+        "indices": ["^SPX", "^DJI", "^IXIC", "^VIX", "^MXX"],
+        "etfs": ["SPY", "QQQ", "IWM", "GLD", "TLT", "VNQ", "XLF", "XLE"],
+        "crypto": ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD"],
+        "forex": ["EURUSD=X", "GBPUSD=X", "JPYUSD=X", "MXNUSD=X"],
+        "commodities": ["GC=F", "CL=F", "SI=F"],
+        "bonds": ["^TNX", "^TYX", "^IRX"],
+        "mx": ["AMXL.MX", "WALMEX.MX", "FEMSAUBD.MX", "GFNORTEO.MX", "GMEXICOB.MX"]
     }
+
+    category = category.lower()
+    if category not in universes:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    symbols = universes[category]
+    results = []
+    
+    for symbol in symbols:
+        try:
+            quote = await market_service.get_stock_quote(symbol)
+            results.append({
+                "symbol": symbol,
+                "price": quote.get("current_price", 0.0),
+                "change_pct": quote.get("percent_change", 0.0),
+                "name": symbol.replace("^", "").replace("-USD", "").replace("=X", "").replace("=F", "")
+            })
+        except Exception as e:
+            results.append({"symbol": symbol, "error": str(e)})
+            
+    return results

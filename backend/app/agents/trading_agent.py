@@ -7,6 +7,7 @@ from app.services.sentiment_service import SentimentService
 from app.services.ai_orchestrator import AIOrchestrator
 from app.services.obsidian_service import ObsidianService
 from app.services.accuracy_engine import AccuracyEngine
+from app.agents.skills.base import AgentSkill
 
 logger = logging.getLogger(__name__)
 

@@ -1,3 +1,4 @@
+from fastapi import APIRouter
 from app.api.v1.endpoints import (
     health, market, stocks, portfolio, ws, market_hours, agents, memory, accuracy
 )
