@@ -5,6 +5,7 @@ import { Search, Zap, TrendingUp, TrendingDown, Activity, Star, Globe, Coins, Ba
 import { useAppStore } from '@/store/app-store';
 import StockIcon from '../StockIcon';
 import { getCompanyName } from '@/lib/constants';
+import { useAgentSignals } from '@/hooks/useAgentSignals';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -45,6 +46,7 @@ interface AssetData {
 
 export default function FindView() {
   const { setSelectedSymbol } = useAppStore();
+  const { livePrices } = useAgentSignals();
   const [activeCategory, setActiveCategory] = useState('POPULAR');
   const [assets, setAssets] = useState<AssetData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -235,64 +237,72 @@ export default function FindView() {
             </div>
           ))
         ) : filteredAndSortedData.length > 0 ? (
-          filteredAndSortedData.map((asset) => (
-            <button
-              key={asset.symbol}
-              onClick={() => setSelectedSymbol(asset.symbol)}
-              className="glass group flex flex-col p-4 text-left transition-all hover:bg-white/10 active:scale-[0.98] border border-white/5"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-3">
-                  <StockIcon symbol={asset.symbol} size="sm" />
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                       <span className="font-bold text-white/90 text-sm tracking-tight">{asset.symbol}</span>
-                       <div className="w-1 h-1 bg-white/20 rounded-full" />
-                       <span className="text-[10px] font-bold text-white/30 truncate max-w-[120px]">{asset.name}</span>
-                    </div>
-                    <div className="text-xl font-bold tracking-tighter mt-0.5">
-                      ${asset.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          filteredAndSortedData.map((asset) => {
+            const live = livePrices[asset.symbol];
+            const price = live?.price ?? asset.price;
+            const pct = live?.change_pct ?? asset.change_pct;
+            const isPositive = pct >= 0;
+
+            return (
+              <button
+                key={asset.symbol}
+                onClick={() => setSelectedSymbol(asset.symbol)}
+                className="glass group flex flex-col p-4 text-left transition-all hover:bg-white/10 active:scale-[0.98] border border-white/5"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <StockIcon symbol={asset.symbol} size="sm" />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                         <span className="font-bold text-white/90 text-sm tracking-tight">{asset.symbol}</span>
+                         <div className="w-1 h-1 bg-white/20 rounded-full" />
+                         <span className="text-[10px] font-bold text-white/30 truncate max-w-[120px]">{asset.name}</span>
+                         {live && <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse ml-1" title="Live Update" />}
+                      </div>
+                      <div className="text-xl font-bold tracking-tighter mt-0.5">
+                        ${price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </div>
                     </div>
                   </div>
+                  <div className="text-right flex flex-col items-end">
+                     <div className="text-2xl font-black text-white/90 leading-none mb-1">
+                        {asset.score.toFixed(1)}
+                     </div>
+                     <div className={`text-[10px] font-black px-2 py-0.5 rounded uppercase ${
+                       isPositive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                     }`}>
+                       {isPositive ? '+' : ''}{pct.toFixed(2)}%
+                     </div>
+                  </div>
                 </div>
-                <div className="text-right flex flex-col items-end">
-                   <div className="text-2xl font-black text-white/90 leading-none mb-1">
-                      {asset.score.toFixed(1)}
-                   </div>
-                   <div className={`text-[10px] font-black px-2 py-0.5 rounded uppercase ${
-                     asset.change_pct >= 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                   }`}>
-                     {asset.change_pct >= 0 ? '+' : ''}{asset.change_pct.toFixed(2)}%
-                   </div>
-                </div>
-              </div>
 
-              {/* Mini Signal Bar */}
-              <div className="flex items-center justify-between mt-auto pt-2 border-t border-white/5">
-                <div className="flex gap-1">
-                  {[1, 2, 3, 4, 5].map((seg) => {
-                    const threshold = seg * 2;
-                    const isActive = asset.score >= (threshold - 1);
-                    let colorClass = "bg-white/10";
-                    if (isActive) {
-                      if (asset.score >= 7) colorClass = "bg-green-500";
-                      else if (asset.score >= 4) colorClass = "bg-gray-400";
-                      else colorClass = "bg-red-500";
-                    }
-                    return (
-                      <div 
-                        key={seg} 
-                        className={`h-1 w-6 rounded-full transition-all duration-500 ${colorClass}`}
-                      />
-                    );
-                  })}
+                {/* Mini Signal Bar */}
+                <div className="flex items-center justify-between mt-auto pt-2 border-t border-white/5">
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((seg) => {
+                      const threshold = seg * 2;
+                      const isActive = asset.score >= (threshold - 1);
+                      let colorClass = "bg-white/10";
+                      if (isActive) {
+                        if (asset.score >= 7) colorClass = "bg-green-500";
+                        else if (asset.score >= 4) colorClass = "bg-gray-400";
+                        else colorClass = "bg-red-500";
+                      }
+                      return (
+                        <div 
+                          key={seg} 
+                          className={`h-1 w-6 rounded-full transition-all duration-500 ${colorClass}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-white/20">
+                    {asset.signal}
+                  </span>
                 </div>
-                <span className="text-[9px] font-black uppercase tracking-widest text-white/20">
-                  {asset.signal}
-                </span>
-              </div>
-            </button>
-          ))
+              </button>
+            );
+          })
         ) : (
           <div className="py-20 text-center space-y-4">
              <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mx-auto">

@@ -20,20 +20,27 @@ export function useAgentSignals() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    // Use environment variable if present, otherwise fallback to current host
-    // Replace http/https with ws/wss accordingly
-    let wsUrl = WS_URL;
-    if (!process.env.NEXT_PUBLIC_WS_URL) {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.hostname;
-      const port = window.location.port ? `:${window.location.port}` : '';
-      wsUrl = `${protocol}//${host}${port}/api/v1/ws/signals`;
-    } else {
-      // Normalize URL (replace http/https with ws/wss)
-      wsUrl = wsUrl.replace(/^http/, 'ws');
-      if (window.location.protocol === 'https:') {
-        wsUrl = wsUrl.replace(/^ws:/, 'wss:');
+    // Use environment variable if present, otherwise fallback to API_URL or current host
+    let wsUrl = process.env.NEXT_PUBLIC_WS_URL || '';
+    
+    if (!wsUrl) {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      if (apiUrl.startsWith('http')) {
+        wsUrl = apiUrl.replace(/^http/, 'ws') + '/api/v1/ws/signals';
+      } else {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.hostname;
+        const port = window.location.port ? `:${window.location.port}` : '';
+        wsUrl = `${protocol}//${host}${port}/api/v1/ws/signals`;
       }
+    } else {
+      // Normalize existing WS_URL
+      wsUrl = wsUrl.replace(/^http/, 'ws');
+    }
+
+    // Force wss if on https
+    if (window.location.protocol === 'https:') {
+      wsUrl = wsUrl.replace(/^ws:/, 'wss:');
     }
 
     const socket = new WebSocket(wsUrl);
