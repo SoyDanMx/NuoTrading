@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Technical Memory (Obsidian)
     OBSIDIAN_VAULT_PATH: str = "" # Absolute path to Obsidian vault
     
+    # Social Signal APIs (Phase A)
+    REDDIT_CLIENT_ID: str = ""
+    REDDIT_CLIENT_SECRET: str = ""
+    TWITTER_BEARER_TOKEN: str = ""
+    
     class Config:
         # Load .env from backend/ and from project root (for Docker/local)
         env_file = [".env", "../.env"]
