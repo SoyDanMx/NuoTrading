@@ -26,21 +26,29 @@ export function useAgentSignals() {
     if (!wsUrl) {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       if (apiUrl.startsWith('http')) {
-        wsUrl = apiUrl.replace(/^http/, 'ws') + '/api/v1/ws/signals';
+        wsUrl = apiUrl.replace(/^http/, 'ws');
       } else {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.hostname;
         const port = window.location.port ? `:${window.location.port}` : '';
-        wsUrl = `${protocol}//${host}${port}/api/v1/ws/signals`;
+        wsUrl = `${protocol}//${host}${port}`;
       }
-    } else {
-      // Normalize existing WS_URL
-      wsUrl = wsUrl.replace(/^http/, 'ws');
     }
 
-    // Force wss if on https
-    if (window.location.protocol === 'https:') {
+    // Ensure it starts with ws or wss
+    if (wsUrl.startsWith('http')) {
+      wsUrl = wsUrl.replace(/^http/, 'ws');
+    }
+    
+    // Ensure wss if on https
+    if (window.location.protocol === 'https:' && wsUrl.startsWith('ws:')) {
       wsUrl = wsUrl.replace(/^ws:/, 'wss:');
+    }
+
+    // Ensure the path is present
+    if (!wsUrl.includes('/api/v1/ws/')) {
+      // Remove trailing slash if present then add path
+      wsUrl = wsUrl.replace(/\/$/, '') + '/api/v1/ws/signals';
     }
 
     const socket = new WebSocket(wsUrl);
