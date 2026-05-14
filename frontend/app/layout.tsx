@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   description: "Advanced Algorithmic Trading & Analysis",
 };
 
+import ClientDiagnostics from "@/components/ClientDiagnostics";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -27,6 +29,7 @@ export default function RootLayout({
   return (
     <html lang="es" className={`${inter.variable} ${playfair.variable}`}>
       <body className="antialiased bg-black text-white selection:bg-blue-500/30" suppressHydrationWarning>
+        <ClientDiagnostics />
         {children}
       </body>
     </html>

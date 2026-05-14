@@ -6,13 +6,17 @@ const nextConfig: NextConfig = {
   
   // API proxy configuration
   async rewrites() {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    let apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    
+    // Ensure protocol
+    if (apiUrl && !apiUrl.startsWith('http')) {
+      apiUrl = `https://${apiUrl}`;
+    }
+
     return [
       {
         source: '/api/:path*',
-        destination: apiUrl.startsWith('http') 
-          ? `${apiUrl}/api/:path*`
-          : `http://localhost:8000/api/:path*`,
+        destination: `${apiUrl}/api/:path*`,
       },
     ];
   },
