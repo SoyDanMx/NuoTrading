@@ -1,201 +1,286 @@
+import asyncio
 import logging
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from openai import AsyncOpenAI
 import google.generativeai as genai
 from anthropic import AsyncAnthropic
 from app.core.config import settings
 from app.services.obsidian_service import ObsidianService
+from app.agents.skills.base import AgentSkill, SkillResult
 
 logger = logging.getLogger(__name__)
 
+
+def _load_skills() -> List[AgentSkill]:
+    """
+    Carga dinámicamente todas las Skills disponibles.
+    Para agregar una nueva Skill a Fase A o B, solo agregarla aquí.
+    """
+    from app.agents.skills.technical_skill import TechnicalSkill
+    from app.agents.skills.sentiment_skill import SentimentSkill
+    from app.agents.skills.options_flow_skill import OptionsFlowSkill
+    from app.agents.skills.earnings_skill import EarningsSkill
+    from app.agents.skills.social_skill import SocialSkill
+
+    return [
+        TechnicalSkill(),    # weight=0.30
+        SentimentSkill(),    # weight=0.25
+        OptionsFlowSkill(),  # weight=0.20
+        EarningsSkill(),     # weight=0.15
+        SocialSkill(),       # weight=0.10
+    ]
+
+
 class AIOrchestrator:
     """
-    Advanced AI Orchestrator for NuoTrading (Skill-Based Architecture).
-    Orchestrates specialized AgentSkills and multi-LLM reasoning.
+    Multi-LLM Orchestrator for NuoTrading.
+
+    Flow:
+      1. Execute all AgentSkills in parallel (asyncio.gather).
+      2. Compute weighted score (-1.0 to +1.0).
+      3. Ask Groq (fast) + Claude/GPT-4o (deep) for the executive reasoning.
+      4. Save to Obsidian memory.
     """
 
     def __init__(self):
         self.provider = settings.AI_PROVIDER.lower()
+        self.obsidian = ObsidianService()
+
+        # Dynamic skill loading – add new skills in _load_skills()
+        self.skills: List[AgentSkill] = _load_skills()
+
+        # LLM Clients
         self.openai_client = None
         self.gemini_model = None
         self.groq_client = None
         self.anthropic_client = None
-        self.obsidian = ObsidianService()
-        
-        # Load available skills dynamically
-        from app.agents.skills.technical import TechnicalSkill
-        from app.agents.skills.sentiment import SentimentSkill
-        self.skills = [
-            TechnicalSkill(),
-            SentimentSkill()
-            # EarningsSkill(), # Phase B
-            # SocialSignalSkill() # Phase A
-        ]
-        
-        # Initialize Clients
+
         if settings.OPENAI_API_KEY:
             self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            
+
         if settings.GEMINI_API_KEY:
             genai.configure(api_key=settings.GEMINI_API_KEY)
             self.gemini_model = genai.GenerativeModel('gemini-1.5-pro')
-            
+
         if settings.GROQ_API_KEY:
-            self.groq_client = AsyncOpenAI(api_key=settings.GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+            self.groq_client = AsyncOpenAI(
+                api_key=settings.GROQ_API_KEY,
+                base_url="https://api.groq.com/openai/v1"
+            )
 
         if settings.ANTHROPIC_API_KEY:
             self.anthropic_client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 
+    # ------------------------------------------------------------------
+    # Main entry point
+    # ------------------------------------------------------------------
+
     async def analyze_with_skills(self, symbol: str) -> Dict[str, Any]:
         """
-        Execute all available skills, calculate weighted score, and get final LLM verdict.
+        Execute all available skills in parallel, compute weighted score,
+        then ask the LLM for the executive reasoning.
         """
-        skill_results = {}
-        total_weight = 0.0
-        weighted_score = 0.0
-        
-        # 1. Execute all skills
-        for skill in self.skills:
-            result = await skill.analyze(symbol)
-            skill_results[skill.name] = result
-            
-            # 2. Calculate weighted score
-            weighted_score += result.score * skill.weight
-            total_weight += skill.weight
-            
-        # Normalize score if total_weight != 1.0
+        # 1. Run skills in parallel, skip unavailable ones
+        available_skills = [s for s in self.skills if await s.is_available()]
+        results: List[SkillResult] = await asyncio.gather(
+            *[skill.analyze(symbol) for skill in available_skills]
+        )
+
+        # 2. Weighted score (-1.0 to +1.0)
+        total_weight = sum(s.weight for s in available_skills)
         if total_weight > 0:
-            final_score = weighted_score / total_weight
+            final_score = sum(
+                r.score * s.weight
+                for r, s in zip(results, available_skills)
+            ) / total_weight
         else:
-            final_score = 50.0
+            final_score = 0.0
 
-        # Determine preliminary signal
-        if final_score >= 85:
-            preliminary_action = "BUY" # COMPRA FUERTE
-        elif final_score >= 55:
-            preliminary_action = "BUY"
-        elif final_score <= 20:
-            preliminary_action = "SELL" # VENTA FUERTE
-        elif final_score <= 45:
-            preliminary_action = "SELL"
-        else:
-            preliminary_action = "HOLD"
+        final_score = max(-1.0, min(1.0, final_score))
 
-        # 3. Generate Final Reasoning via Multi-LLM
-        prompt = self._prepare_skill_prompt(symbol, final_score, preliminary_action, skill_results)
-        
-        analysis = None
-        if self.provider == "smart":
-            analysis = await self._analyze_smart(symbol, prompt, skill_results)
-        elif self.provider == "groq" and self.groq_client:
-            analysis = await self._call_openai_compatible(self.groq_client, "llama-3.1-70b-versatile", prompt)
-        elif self.provider == "gemini" and self.gemini_model:
-            analysis = await self._analyze_with_gemini(prompt)
-        elif self.provider == "anthropic" and self.anthropic_client:
-            analysis = await self._analyze_with_anthropic(prompt)
-        elif self.provider == "openai" and self.openai_client:
-            analysis = await self._call_openai_compatible(self.openai_client, "gpt-4o", prompt)
-        else:
-            analysis = await self._get_best_available(prompt)
+        # 3. Map to action string
+        preliminary_action = self._score_to_action(final_score)
+
+        # 4. LLM executive reasoning
+        prompt = self._build_prompt(symbol, final_score, preliminary_action, results)
+        analysis = await self._call_best_llm(symbol, prompt, results)
 
         if not analysis or "error" in analysis:
             analysis = {
                 "recommendation": preliminary_action,
-                "confidence": final_score,
-                "reasoning": f"Basado en un score algorítmico de {final_score:.1f}/100 combinando múltiples fuentes.",
-                "sentiment": "neutral"
+                "confidence": abs(final_score),
+                "reasoning": f"Score algorítmico: {final_score:.2f}. No se pudo obtener razonamiento LLM.",
+                "sentiment": "neutral",
             }
 
-        # Override confidence with our strict algorithmic score
-        analysis["confidence"] = final_score
-        
-        # Inject skill results into analysis
-        analysis["skills_breakdown"] = {name: {"score": res.score, "signal": res.signal, "reasoning": res.reasoning} for name, res in skill_results.items()}
+        # 5. Enrich response
+        analysis["final_score"] = final_score
+        analysis["confidence"] = abs(final_score)
+        analysis["skills_breakdown"] = {
+            r.skill_name: {
+                "score": r.score,
+                "signal": r.signal,
+                "confidence": r.confidence,
+                "reasoning": r.reasoning,
+                "raw_data": r.raw_data,
+            }
+            for r in results
+        }
 
-        # Save to Obsidian
+        # 6. Persist to Obsidian
         self.obsidian.save_analysis(symbol, analysis)
 
         return analysis
 
-    def _prepare_skill_prompt(self, symbol: str, final_score: float, action: str, skill_results: Dict[str, Any]) -> str:
-        skills_summary = "\\n".join([f"- {name}: Score={res.score:.1f}, Signal={res.signal}, Reason: {res.reasoning}" for name, res in skill_results.items()])
+    # ------------------------------------------------------------------
+    # Helper: score → action label
+    # ------------------------------------------------------------------
+
+    def _score_to_action(self, score: float) -> str:
+        if score >= 0.8:
+            return "COMPRA FUERTE"
+        elif score >= 0.5:
+            return "COMPRA"
+        elif score <= -0.8:
+            return "VENTA FUERTE"
+        elif score <= -0.5:
+            return "VENTA"
+        return "MANTENER"
+
+    # ------------------------------------------------------------------
+    # Prompt builder
+    # ------------------------------------------------------------------
+
+    def _build_prompt(
+        self,
+        symbol: str,
+        final_score: float,
+        action: str,
+        results: List[SkillResult],
+    ) -> str:
+        skills_summary = "\n".join(
+            f"  - {r.skill_name}: score={r.score:.2f}, signal={r.signal}, "
+            f"confidence={r.confidence:.2f} → {r.reasoning}"
+            for r in results
+        )
         return f"""
-        Final Strategy Orchestration for {symbol}.
-        
-        We have processed quantitative skills and aggregated a Final Algorithmic Score of {final_score:.1f}/100.
-        Preliminary Action: {action}
-        
-        Skill Breakdown:
-        {skills_summary}
-        
-        As the Master AI Orchestrator, write a highly professional, 2-sentence executive summary in Spanish explaining the 'Why' behind this score.
-        Do NOT change the score, just provide the reasoning.
-        
-        Return a JSON object:
-        {{
-          "recommendation": "{action}",
-          "confidence": {final_score},
-          "reasoning": "Resumen ejecutivo profesional en Español",
-          "sentiment": "bullish"|"bearish"|"neutral"
-        }}
-        """
+Eres el Orquestador Maestro de NuoTrading, un sistema institucional de trading.
+Acabo de ejecutar {len(results)} Skills cuantitativas sobre {symbol}:
 
-    async def _analyze_smart(self, symbol: str, prompt: str, skill_results: Dict) -> Dict:
+Score algorítmico final: {final_score:.2f} (rango -1.0 a +1.0)
+Acción preliminar: {action}
+
+Breakdown por Skill:
+{skills_summary}
+
+Escribe en 2 oraciones el razonamiento ejecutivo profesional en Español que explique
+el "¿Por qué?" detrás de este veredicto. No cambies los números.
+
+Responde SOLO con este JSON:
+{{
+  "recommendation": "{action}",
+  "confidence": {abs(final_score):.4f},
+  "reasoning": "<razonamiento en español>",
+  "sentiment": "bullish" | "bearish" | "neutral"
+}}
+"""
+
+    # ------------------------------------------------------------------
+    # Smart LLM routing
+    # ------------------------------------------------------------------
+
+    async def _call_best_llm(
+        self, symbol: str, prompt: str, results: List[SkillResult]
+    ) -> Dict[str, Any]:
         """
-        Smart Routing Strategy: Fast tech scan + Deep logic
-        Since we already ran the modular skills, we just use the fastest/best LLM for the final verdict.
+        Strategy:
+          - Smart mode: Groq (fast scan) → Claude/GPT-4o (deep verdict).
+          - Single provider: use whatever is configured.
         """
+        if self.provider == "smart":
+            return await self._smart_route(prompt)
+        elif self.provider == "groq" and self.groq_client:
+            return await self._call_openai_compat(
+                self.groq_client, "llama-3.1-70b-versatile", prompt
+            )
+        elif self.provider == "anthropic" and self.anthropic_client:
+            return await self._call_anthropic(prompt)
+        elif self.provider == "openai" and self.openai_client:
+            return await self._call_openai_compat(
+                self.openai_client, "gpt-4o", prompt
+            )
+        elif self.provider == "gemini" and self.gemini_model:
+            return await self._call_gemini(prompt)
+        return await self._best_available(prompt)
+
+    async def _smart_route(self, prompt: str) -> Dict[str, Any]:
+        """Groq for speed, then Claude/GPT for depth."""
+        # Use Groq if available (fastest)
         if self.groq_client:
-            return await self._call_openai_compatible(self.groq_client, "llama-3.1-70b-versatile", prompt)
-        return await self._get_best_available(prompt)
+            result = await self._call_openai_compat(
+                self.groq_client, "llama-3.1-70b-versatile", prompt
+            )
+            if "error" not in result:
+                return result
+        return await self._best_available(prompt)
 
-    async def _call_openai_compatible(self, client: AsyncOpenAI, model: str, prompt: str) -> Dict:
+    async def _best_available(self, prompt: str) -> Dict[str, Any]:
+        if self.anthropic_client:
+            return await self._call_anthropic(prompt)
+        if self.groq_client:
+            return await self._call_openai_compat(
+                self.groq_client, "llama-3.1-70b-versatile", prompt
+            )
+        if self.openai_client:
+            return await self._call_openai_compat(self.openai_client, "gpt-4o", prompt)
+        if self.gemini_model:
+            return await self._call_gemini(prompt)
+        return {"error": "No LLM providers available"}
+
+    # ------------------------------------------------------------------
+    # Provider implementations
+    # ------------------------------------------------------------------
+
+    async def _call_openai_compat(
+        self, client: AsyncOpenAI, model: str, prompt: str
+    ) -> Dict[str, Any]:
         try:
-            response = await client.chat.completions.create(
+            resp = await client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
-            return json.loads(response.choices[0].message.content)
+            return json.loads(resp.choices[0].message.content)
         except Exception as e:
-            logger.error(f"Error with {model}: {e}")
+            logger.error("Error with %s: %s", model, e)
             return {"error": str(e)}
 
-    async def _analyze_with_gemini(self, prompt: str) -> Dict:
+    async def _call_gemini(self, prompt: str) -> Dict[str, Any]:
         try:
-            response = await self.gemini_model.generate_content_async(
+            resp = await self.gemini_model.generate_content_async(
                 prompt,
-                generation_config={"response_mime_type": "application/json"}
+                generation_config={"response_mime_type": "application/json"},
             )
-            return json.loads(response.text)
+            return json.loads(resp.text)
         except Exception as e:
-            logger.error(f"Gemini error: {e}")
+            logger.error("Gemini error: %s", e)
             return {"error": str(e)}
 
-    async def _analyze_with_anthropic(self, prompt: str) -> Dict:
+    async def _call_anthropic(self, prompt: str) -> Dict[str, Any]:
         try:
-            response = await self.anthropic_client.messages.create(
+            resp = await self.anthropic_client.messages.create(
                 model="claude-3-5-sonnet-20240620",
-                max_tokens=1024,
-                system="You are a professional trader. Respond ONLY with a JSON object.",
-                messages=[{"role": "user", "content": prompt}]
+                max_tokens=512,
+                system="You are a professional trader. Respond ONLY with valid JSON.",
+                messages=[{"role": "user", "content": prompt}],
             )
-            # Find the JSON part in the response
-            content = response.content[0].text
-            start_idx = content.find('{')
-            end_idx = content.rfind('}') + 1
-            if start_idx != -1 and end_idx != 0:
-                json_str = content[start_idx:end_idx]
-                return json.loads(json_str)
+            content = resp.content[0].text
+            start = content.find("{")
+            end = content.rfind("}") + 1
+            if start != -1 and end > start:
+                return json.loads(content[start:end])
             return {"error": "Invalid JSON from Anthropic"}
         except Exception as e:
-            logger.error(f"Anthropic error: {e}")
+            logger.error("Anthropic error: %s", e)
             return {"error": str(e)}
-
-    async def _get_best_available(self, prompt: str) -> Dict:
-        if self.anthropic_client: return await self._analyze_with_anthropic(prompt)
-        if self.groq_client: return await self._call_openai_compatible(self.groq_client, "llama-3.1-70b-versatile", prompt)
-        if self.openai_client: return await self._call_openai_compatible(self.openai_client, "gpt-4o", prompt)
-        if self.gemini_model: return await self._analyze_with_gemini(prompt)
-        return {"error": "No providers available"}
