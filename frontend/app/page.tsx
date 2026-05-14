@@ -1,5 +1,7 @@
 'use client';
 
+import { useState, useEffect } from 'react';
+
 import { useAppStore } from '@/store/app-store';
 import AppShell from '@/components/AppShell';
 import StocksView from '@/components/views/StocksView';
