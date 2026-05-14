@@ -6,7 +6,7 @@ import { useAppStore } from '@/store/app-store';
 import StockIcon from '../StockIcon';
 import { getCompanyName } from '@/lib/constants';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 const CATEGORIES = [
   { id: 'POPULAR', label: 'Todos', icon: Star },

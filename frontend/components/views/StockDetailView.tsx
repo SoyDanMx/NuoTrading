@@ -13,7 +13,7 @@ import Disclaimer from '../Disclaimer';
 import CircularGauge from '../CircularGauge';
 import SignalBar from '../SignalBar';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 type Timeframe = '1D' | '1W' | '1M' | '1Y' | '5Y' | 'ALL';
 type Tab = 'Overview' | 'Stock Analysis' | 'Precision' | 'Trading Parameters' | 'Buy Track Record' | 'Scores Evolution';

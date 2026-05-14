@@ -28,6 +28,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
         "http://127.0.0.1:3004",
+        "https://nuo-trading-frontend.vercel.app",
+        "*", # Allow all for production debugging
     ]
 
     @field_validator("CORS_ORIGINS", mode="before")

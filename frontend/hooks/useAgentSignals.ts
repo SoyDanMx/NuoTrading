@@ -26,13 +26,13 @@ export function useAgentSignals() {
     if (!process.env.NEXT_PUBLIC_WS_URL) {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.hostname;
-      // In production (Vercel), we expect the backend to be elsewhere, 
-      // but if not set, we try the same host (though it likely fails if it's Vercel)
-      wsUrl = `${protocol}//${host}${window.location.port ? `:${window.location.port}` : ''}/api/v1/ws/signals`;
+      const port = window.location.port ? `:${window.location.port}` : '';
+      wsUrl = `${protocol}//${host}${port}/api/v1/ws/signals`;
     } else {
-      // Ensure the protocol matches if we are on HTTPS
-      if (window.location.protocol === 'https:' && wsUrl.startsWith('ws:')) {
-        wsUrl = wsUrl.replace('ws:', 'wss:');
+      // Normalize URL (replace http/https with ws/wss)
+      wsUrl = wsUrl.replace(/^http/, 'ws');
+      if (window.location.protocol === 'https:') {
+        wsUrl = wsUrl.replace(/^ws:/, 'wss:');
       }
     }
 

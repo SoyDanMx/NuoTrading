@@ -6,20 +6,15 @@ const nextConfig: NextConfig = {
   
   // API proxy configuration
   async rewrites() {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     return [
       {
         source: '/api/:path*',
-        destination: process.env.NEXT_PUBLIC_API_URL 
-          ? `${process.env.NEXT_PUBLIC_API_URL}/:path*`
-          : 'http://localhost:8000/:path*',
+        destination: apiUrl.startsWith('http') 
+          ? `${apiUrl}/api/:path*`
+          : `http://localhost:8000/api/:path*`,
       },
     ];
-  },
-
-  // Environment variables
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-    NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000',
   },
 
   // Image optimization (Next.js 14+)

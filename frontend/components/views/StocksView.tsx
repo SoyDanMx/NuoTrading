@@ -8,7 +8,7 @@ import StockIcon from '../StockIcon';
 import { ChevronRight, Plus, Sparkles, ArrowRight, Settings2, RotateCcw, Zap } from 'lucide-react';
 import { useAgentSignals } from '@/hooks/useAgentSignals';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 interface Quote {
   symbol: string;

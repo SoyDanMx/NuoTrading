@@ -22,7 +22,7 @@ export default function PortfolioSummary() {
     const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
 
     useEffect(() => {
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
         fetch(`${API_URL}/api/v1/portfolio`)
             .then(res => res.json())
             .then(data => setPortfolio(data))
