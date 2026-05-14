@@ -26,35 +26,28 @@ class SocialSkill(AgentSkill):
         return 0.10
 
     async def is_available(self) -> bool:
-        """Only active if at least one social API key is configured."""
-        has_reddit = bool(
-            getattr(settings, "REDDIT_CLIENT_ID", None) and
-            getattr(settings, "REDDIT_CLIENT_SECRET", None)
-        )
-        has_twitter = bool(getattr(settings, "TWITTER_BEARER_TOKEN", None))
-        return has_reddit or has_twitter
+        """
+        Reddit uses the public JSON API — always available, no keys needed.
+        Twitter adds signal when TWITTER_BEARER_TOKEN is configured.
+        """
+        return True  # Reddit public API is always accessible
 
     async def analyze(self, symbol: str) -> SkillResult:
-        has_reddit = bool(
-            getattr(settings, "REDDIT_CLIENT_ID", None) and
-            getattr(settings, "REDDIT_CLIENT_SECRET", None)
-        )
         has_twitter = bool(getattr(settings, "TWITTER_BEARER_TOKEN", None))
 
         reddit_data = {"weighted_score": 0.0, "mention_count": 0, "top_posts": []}
         twitter_data = {"weighted_score": 0.0, "top_accounts": [], "tweet_count": 0}
 
-        # --- Reddit ---------------------------------------------------------
-        if has_reddit:
-            try:
-                from app.services.reddit_service import RedditService
-                if self._reddit is None:
-                    self._reddit = RedditService()
-                reddit_data = await self._reddit.get_ticker_sentiment(symbol)
-            except Exception as e:
-                logger.warning("Reddit signal failed for %s: %s", symbol, e)
+        # --- Reddit (always on — public JSON API, no keys needed) -----------
+        try:
+            from app.services.reddit_service import RedditService
+            if self._reddit is None:
+                self._reddit = RedditService()
+            reddit_data = await self._reddit.get_ticker_sentiment(symbol)
+        except Exception as e:
+            logger.warning("Reddit signal failed for %s: %s", symbol, e)
 
-        # --- Twitter / X ----------------------------------------------------
+        # --- Twitter / X (optional — only when bearer token is configured) --
         if has_twitter:
             try:
                 from app.services.twitter_signal_service import TwitterSignalService
