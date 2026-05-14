@@ -491,12 +491,9 @@ class MarketDataService:
             # Calculate recommendation
             recommendation = self._calculate_recommendation(indicators, vix, sentiment)
             
-            # Get AI Insights
-            ai_insights = await self.ai_orchestrator.analyze_market_context(
-                symbol=symbol,
-                price_data=quote,
-                indicators=indicators,
-                news=news
+            # Get AI Insights (Skill-Based Architecture)
+            ai_insights = await self.ai_orchestrator.analyze_with_skills(
+                symbol=symbol
             )
             
             return {
